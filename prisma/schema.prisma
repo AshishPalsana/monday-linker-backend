@@ -1,0 +1,109 @@
+// Prisma schema for Monday Linker — Field Services Time Tracking
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────
+// Technician — sourced from Monday.com identity
+// ─────────────────────────────────────────────
+model Technician {
+  id          String      @id  // monday.com user ID (string from SDK context)
+  name        String
+  email       String?     @unique
+  isAdmin     Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  timeEntries TimeEntry[]
+
+  @@map("technicians")
+}
+
+// ─────────────────────────────────────────────
+// TimeEntry — one clock-in / clock-out session
+// ─────────────────────────────────────────────
+model TimeEntry {
+  id              String      @id @default(cuid())
+  technicianId    String
+
+  entryType       EntryType   // Job | NonJob
+  status          EntryStatus @default(Open)
+
+  // Job entries
+  workOrderRef    String?     // monday.com item ID for the Work Order
+  workOrderLabel  String?     // display label e.g. "WO-1354 · Ice Machine Repair"
+
+  // Non-Job entries
+  taskCategory    String?     // "Safety Meeting", "Training", "Shop / Warehouse", etc.
+  taskDescription String?
+
+  // Monday.com item ID — set after creating the item on the Time Entries board
+  mondayItemId    String?
+
+  // Timing
+  clockIn         DateTime
+  clockOut        DateTime?
+  hoursWorked     Decimal?    @db.Decimal(6, 2)  // computed on clock-out
+
+  // Clock-out fields
+  narrative       String?     // technician's work notes
+  jobLocation     String?     // location/site name at clock-out
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  technician      Technician  @relation(fields: [technicianId], references: [id])
+  expenses        Expense[]
+
+  @@index([technicianId, clockIn])
+  @@index([workOrderRef])
+  @@map("time_entries")
+}
+
+// ─────────────────────────────────────────────
+// Expense — attached to a clock-out session
+// ─────────────────────────────────────────────
+model Expense {
+  id          String      @id @default(cuid())
+  timeEntryId String
+
+  type        ExpenseType  // Fuel | Lodging | Meals | Supplies
+  amount      Decimal      @db.Decimal(10, 2)
+  details     String?
+  receiptUrl  String?
+
+  createdAt   DateTime     @default(now())
+
+  timeEntry   TimeEntry    @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+
+  @@map("expenses")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+enum EntryType {
+  Job
+  NonJob
+}
+
+enum EntryStatus {
+  Open
+  Complete
+  Approved
+}
+
+// ExpenseType matches Monday.com Expenses board dropdown (ids 1-4)
+enum ExpenseType {
+  Fuel
+  Lodging
+  Meals
+  Supplies
+}
