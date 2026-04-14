@@ -48,6 +48,17 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// ── Debug Route ────────────────────────────────────────
+app.get("/api/debug/counters", async (_req, res) => {
+  try {
+    const prisma = require("./lib/prisma");
+    const counters = await prisma.sequentialIdCounter.findMany();
+    res.json({ status: "ok", counters });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 // ── Routes ─────────────────────────────────────────────
 app.use("/api/auth",         authRoutes);
 app.use("/api/technicians",  technicianRoutes);
