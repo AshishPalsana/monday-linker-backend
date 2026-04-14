@@ -9,6 +9,7 @@ const technicianRoutes = require("./routes/technicians");
 const timeEntryRoutes  = require("./routes/timeEntries");
 const expenseRoutes    = require("./routes/expenses");
 const authRoutes       = require("./routes/auth");
+const webhookRoutes    = require("./routes/webhooks");
 const { errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -52,6 +53,7 @@ app.use("/api/auth",         authRoutes);
 app.use("/api/technicians",  technicianRoutes);
 app.use("/api/time-entries", timeEntryRoutes);
 app.use("/api/expenses",     expenseRoutes);
+app.use("/api/webhooks",     webhookRoutes);
 
 // ── 404 ────────────────────────────────────────────────
 app.use((_req, res) => {

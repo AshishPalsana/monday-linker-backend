@@ -5,6 +5,7 @@ const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const monday = require("../lib/mondayClient");
 const { emitTimeEvent } = require("../lib/socketServer");
+const { getCSTDayBounds, getCSTRangeBounds } = require("../lib/cstTime");
 
 const router = express.Router();
 
@@ -31,12 +32,8 @@ router.get(
         targetTechId = technicianId;
       }
 
-      // Date range filter — default to today
-      const targetDate = date ? new Date(date) : new Date();
-      const dayStart = new Date(targetDate);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(targetDate);
-      dayEnd.setHours(23, 59, 59, 999);
+      // Date range filter — default to today in CST
+      const { dayStart, dayEnd } = getCSTDayBounds(date ?? undefined);
 
       const entries = await prisma.timeEntry.findMany({
         where: {
@@ -70,10 +67,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { from, to, technicianId } = req.query;
-      const rangeStart = new Date(from);
-      rangeStart.setHours(0, 0, 0, 0);
-      const rangeEnd = new Date(to);
-      rangeEnd.setHours(23, 59, 59, 999);
+      const { rangeStart, rangeEnd } = getCSTRangeBounds(from, to);
 
       const entries = await prisma.timeEntry.findMany({
         where: {

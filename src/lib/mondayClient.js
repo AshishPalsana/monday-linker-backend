@@ -13,6 +13,7 @@ const BOARD = {
 const COL = {
   WORK_ORDERS: {
     EXECUTION_STATUS: "color_mm1s7ak1",
+    WORKORDER_ID:     "text_mm1s82bz",
   },
   TIME_ENTRIES: {
     TOTAL_HOURS:      "numeric_mm21p49k",
@@ -61,14 +62,28 @@ function esc(str) {
   return (str || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
 }
 
-async function graphql(query) {
+async function graphql(query, retries = 3) {
   const client = getClient();
-  const { data } = await client.post("", { query });
-  if (data.errors?.length) {
-    const msg = data.errors.map((e) => e.message).join("; ");
-    throw new Error(`Monday.com API error: ${msg}`);
+  let lastError;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const { data } = await client.post("", { query });
+      if (data.errors?.length) {
+        const msg = data.errors.map((e) => e.message).join("; ");
+        throw new Error(`Monday.com API error: ${msg}`);
+      }
+      return data.data;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[mondayClient] Attempt ${i + 1} failed: ${err.message}`);
+      if (i < retries - 1) {
+        // Exponential backoff
+        await new Promise((r) => setTimeout(r, Math.pow(2, i) * 1000));
+      }
+    }
   }
-  return data.data;
+  throw lastError;
 }
 
 async function setWorkOrderInProgress(workOrderItemId) {
@@ -256,12 +271,67 @@ async function createExpenseItem({
   return result.create_item.id;
 }
 
+async function updateWorkOrderId(itemId, newId) {
+  if (!itemId || !newId) return;
+  const cv = { [COL.WORK_ORDERS.WORKORDER_ID]: newId };
+
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.WORK_ORDERS}
+        item_id: ${itemId}
+        column_values: "${esc(JSON.stringify(cv))}"
+      ) { id }
+    }
+  `);
+}
+
+async function getLatestWorkOrderIdFromBoard() {
+  console.log(`[mondayClient] getLatestWorkOrderIdFromBoard — querying board ${BOARD.WORK_ORDERS}`);
+
+  const result = await graphql(`
+    query {
+      boards(ids: [${BOARD.WORK_ORDERS}]) {
+        items_page(limit: 100) {
+          items {
+            id
+            column_values(ids: ["${COL.WORK_ORDERS.WORKORDER_ID}"]) {
+              text
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  const items = result.boards[0]?.items_page?.items || [];
+  console.log(`[mondayClient] Fetched ${items.length} items from WO board`);
+
+  let maxId = 0;
+  items.forEach(item => {
+    const text = item.column_values[0]?.text || "";
+    const match = text.match(/\d+$/);
+    if (match) {
+      const num = parseInt(match[0], 10);
+      console.log(`[mondayClient]   item ${item.id}: text="${text}" → parsed num=${num}`);
+      if (num > maxId) maxId = num;
+    } else {
+      console.log(`[mondayClient]   item ${item.id}: text="${text}" → no numeric ID found, skipping`);
+    }
+  });
+
+  console.log(`[mondayClient] getLatestWorkOrderIdFromBoard — returning maxId=${maxId}`);
+  return maxId;
+}
+
 module.exports = {
   setWorkOrderInProgress,
   setWorkOrderComplete,
   createTimeEntryItem,
   updateTimeEntryItem,
   createExpenseItem,
+  updateWorkOrderId,
+  getLatestWorkOrderIdFromBoard,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,

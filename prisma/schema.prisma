@@ -27,6 +27,19 @@ model Technician {
 }
 
 // ─────────────────────────────────────────────
+// Sequential ID Counter — tracks IDs for boards
+// ─────────────────────────────────────────────
+model SequentialIdCounter {
+  id        String   @id @default(cuid())
+  boardId   String   @unique
+  prefix    String
+  currentId Int      @default(1000)
+  updatedAt DateTime @updatedAt
+
+  @@map("sequential_id_counters")
+}
+
+// ─────────────────────────────────────────────
 // TimeEntry — one clock-in / clock-out session
 // ─────────────────────────────────────────────
 model TimeEntry {

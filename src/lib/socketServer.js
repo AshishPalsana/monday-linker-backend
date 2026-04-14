@@ -4,6 +4,7 @@
 const { Server } = require("socket.io");
 const http = require("http");
 const prisma = require("./prisma");
+const { getCSTDayBounds, getCSTRangeBounds } = require("./cstTime");
 
 let io = null;
 
@@ -45,9 +46,7 @@ function attachSocketIO(app) {
     socket.on("today:request", async () => {
       if (!technicianId) return;
       try {
-        const today = new Date();
-        const dayStart = new Date(today); dayStart.setHours(0, 0, 0, 0);
-        const dayEnd   = new Date(today); dayEnd.setHours(23, 59, 59, 999);
+        const { dayStart, dayEnd } = getCSTDayBounds();
 
         const include = {
           expenses: true,
@@ -91,10 +90,7 @@ function attachSocketIO(app) {
       // }
       if (!from || !to) return;
       try {
-        const rangeStart = new Date(from);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(to);
-        rangeEnd.setHours(23, 59, 59, 999);
+        const { rangeStart, rangeEnd } = getCSTRangeBounds(from, to);
 
         const entries = await prisma.timeEntry.findMany({
           where: { clockIn: { gte: rangeStart, lte: rangeEnd } },

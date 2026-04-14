@@ -21,7 +21,10 @@ router.get(
 
       if (!expense) return res.status(404).json({ error: "Expense not found" });
 
-      if (!req.technician.isAdmin && expense.timeEntry.technicianId !== req.technician.id) {
+      if (
+        !req.technician.isAdmin &&
+        expense.timeEntry.technicianId !== req.technician.id
+      ) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -29,25 +32,35 @@ router.get(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 router.post(
   "/",
   [
     body("timeEntryId").isString().notEmpty(),
-    body("type").isIn(["Fuel", "Lodging", "Meals", "Supplies"]).withMessage("type must be Fuel, Lodging, Meals, or Supplies"),
-    body("amount").isFloat({ min: 0 }).withMessage("amount must be a positive number"),
+    body("type")
+      .isIn(["Fuel", "Lodging", "Meals", "Supplies"])
+      .withMessage("type must be Fuel, Lodging, Meals, or Supplies"),
+    body("amount")
+      .isFloat({ min: 0 })
+      .withMessage("amount must be a positive number"),
     body("details").optional().isString(),
-    body("receiptUrl").optional().isURL().withMessage("receiptUrl must be a valid URL"),
+    body("receiptUrl")
+      .optional()
+      .isURL()
+      .withMessage("receiptUrl must be a valid URL"),
   ],
   validate,
   async (req, res, next) => {
     try {
       const { timeEntryId, type, amount, details, receiptUrl } = req.body;
 
-      const entry = await prisma.timeEntry.findUnique({ where: { id: timeEntryId } });
-      if (!entry) return res.status(404).json({ error: "Time entry not found" });
+      const entry = await prisma.timeEntry.findUnique({
+        where: { id: timeEntryId },
+      });
+      if (!entry)
+        return res.status(404).json({ error: "Time entry not found" });
 
       if (!req.technician.isAdmin && entry.technicianId !== req.technician.id) {
         return res.status(403).json({ error: "Access denied" });
@@ -63,19 +76,21 @@ router.post(
         },
       });
 
-      // ── Monday.com side-effects (non-blocking) ──────────────────────────────
       setImmediate(async () => {
         try {
           await monday.createExpenseItem({
-            mondayUserId:    req.technician.id,
+            mondayUserId: req.technician.id,
             type,
-            amount:          parseFloat(amount),
-            details:         details ?? "",
-            workOrderLabel:  entry.workOrderLabel || entry.workOrderRef || "",
+            amount: parseFloat(amount),
+            details: details ?? "",
+            workOrderLabel: entry.workOrderLabel || entry.workOrderRef || "",
             expenseItemName: `${type} — ${req.technician.name}`,
           });
         } catch (mondayErr) {
-          console.error("[expenses POST] Monday.com sync error:", mondayErr.message);
+          console.error(
+            "[expenses POST] Monday.com sync error:",
+            mondayErr.message,
+          );
         }
       });
 
@@ -83,7 +98,7 @@ router.post(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 router.patch(
@@ -102,8 +117,12 @@ router.patch(
         include: { timeEntry: { select: { technicianId: true } } },
       });
 
-      if (!existing) return res.status(404).json({ error: "Expense not found" });
-      if (!req.technician.isAdmin && existing.timeEntry.technicianId !== req.technician.id) {
+      if (!existing)
+        return res.status(404).json({ error: "Expense not found" });
+      if (
+        !req.technician.isAdmin &&
+        existing.timeEntry.technicianId !== req.technician.id
+      ) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -111,8 +130,8 @@ router.patch(
       const updated = await prisma.expense.update({
         where: { id: req.params.id },
         data: {
-          ...(amount     !== undefined ? { amount }     : {}),
-          ...(details    !== undefined ? { details }    : {}),
+          ...(amount !== undefined ? { amount } : {}),
+          ...(details !== undefined ? { details } : {}),
           ...(receiptUrl !== undefined ? { receiptUrl } : {}),
         },
       });
@@ -121,7 +140,7 @@ router.patch(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 router.delete(
@@ -136,7 +155,7 @@ router.delete(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 module.exports = router;

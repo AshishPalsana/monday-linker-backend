@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: monday-linker-backend
+    env: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: MONDAY_API_TOKEN
+        sync: false
+      - key: MONDAY_SIGNING_SECRET
+        sync: false
+      - key: MONDAY_CLIENT_ID
+        sync: false
+      - key: MONDAY_CLIENT_SECRET
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
