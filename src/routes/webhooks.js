@@ -66,4 +66,26 @@ router.post("/monday/item-created", async (req, res, next) => {
   }
 });
 
+/**
+ * Manual seed route to jumpstart the counter without waiting for a slow webhook
+ */
+router.get("/debug/seed-customers", async (req, res) => {
+  try {
+    const { getNextSequentialId } = require("../lib/idGenerator");
+    const { BOARD } = require("../lib/mondayClient");
+    
+    console.log("[debug] Manual seeding for Customers board...");
+    const nextId = await getNextSequentialId(BOARD.CUSTOMERS, "CUST-");
+    
+    res.json({ 
+      status: "ok", 
+      message: "Customer counter seeded successfully", 
+      nextIdAvailable: nextId 
+    });
+  } catch (err) {
+    console.error("[debug] Seeding failed:", err.message);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 module.exports = router;
