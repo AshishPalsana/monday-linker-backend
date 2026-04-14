@@ -1,5 +1,9 @@
 const prisma = require("./prisma");
-const { getLatestWorkOrderIdFromBoard } = require("./mondayClient");
+const { 
+  getLatestWorkOrderIdFromBoard,
+  getLatestCustomerAccountNumberFromBoard,
+  BOARD
+} = require("./mondayClient");
 
 /**
  * Gets the next sequential ID for a given board.
@@ -20,10 +24,17 @@ async function getNextSequentialId(boardId, prefix = "WO-") {
 
     if (!counter) {
       // ── Step 2: seed from Monday.com board ──────────────────────────────
-      console.log(`[idGenerator] Fetching latest WO ID from Monday.com board ${boardId}…`);
+      console.log(`[idGenerator] Fetching latest ID from Monday.com board ${boardId}…`);
       let latestFromBoard;
       try {
-        latestFromBoard = await getLatestWorkOrderIdFromBoard(boardId);
+        if (String(boardId) === String(BOARD.WORK_ORDERS)) {
+          latestFromBoard = await getLatestWorkOrderIdFromBoard();
+        } else if (String(boardId) === String(BOARD.CUSTOMERS)) {
+          latestFromBoard = await getLatestCustomerAccountNumberFromBoard();
+        } else {
+          console.warn(`[idGenerator] Unknown boardId ${boardId} for seeding — defaulting to 0`);
+          latestFromBoard = 0;
+        }
         console.log(`[idGenerator] Monday board returned latestId=${latestFromBoard}`);
       } catch (err) {
         console.error(`[idGenerator] Failed to fetch latest ID from Monday board:`, err.message);

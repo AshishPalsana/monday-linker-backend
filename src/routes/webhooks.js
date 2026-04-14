@@ -33,27 +33,32 @@ router.post("/monday/item-created", async (req, res, next) => {
     }
 
     const { pulseId, boardId } = event;
-    const targetBoardId = String(BOARD.WORK_ORDERS);
+    const woBoardId = String(BOARD.WORK_ORDERS);
+    const custBoardId = String(BOARD.CUSTOMERS);
 
-    console.log(`[webhook] Target WO board ID: ${targetBoardId}`);
-    console.log(`[webhook] Event board ID:     ${String(boardId)}`);
-    console.log(`[webhook] Board match: ${String(boardId) === targetBoardId}`);
+    console.log(`[webhook] Event pulseId=${pulseId} boardId=${boardId}`);
 
-    if (String(boardId) !== targetBoardId) {
-      console.log(`[webhook] Ignoring — event is for board ${boardId}, not the Work Orders board (${targetBoardId})`);
-      return res.status(200).send("Ignored");
+    // Case 1: Work Order created
+    if (String(boardId) === woBoardId) {
+      console.log(`[webhook] Processing NEW WORK ORDER…`);
+      const newWorkOrderId = await getNextSequentialId(woBoardId, "WO-");
+      await updateWorkOrderId(pulseId, newWorkOrderId);
+      console.log(`[webhook] ✓ Successfully set Work Order ID "${newWorkOrderId}" on item ${pulseId}`);
+      return res.status(200).send("OK");
     }
 
-    // 3. Generate next sequential WO ID
-    console.log(`[webhook] Generating sequential ID for pulse ${pulseId}…`);
-    const newWorkOrderId = await getNextSequentialId(targetBoardId);
-    console.log(`[webhook] Generated ID: "${newWorkOrderId}" — writing to Monday item ${pulseId}`);
+    // Case 2: Customer created
+    if (String(boardId) === custBoardId) {
+      console.log(`[webhook] Processing NEW CUSTOMER…`);
+      const newAccountNumber = await getNextSequentialId(custBoardId, "CUST-");
+      await updateCustomerAccountNumber(pulseId, newAccountNumber);
+      console.log(`[webhook] ✓ Successfully set Customer Account Number "${newAccountNumber}" on item ${pulseId}`);
+      return res.status(200).send("OK");
+    }
 
-    // 4. Write ID back to Monday.com item
-    await updateWorkOrderId(pulseId, newWorkOrderId);
-    console.log(`[webhook] ✓ Successfully set Work Order ID "${newWorkOrderId}" on item ${pulseId}`);
-
-    res.status(200).send("OK");
+    // Default: Ignore other boards
+    console.log(`[webhook] Ignoring — event is for board ${boardId}, not monitored for auto-ID`);
+    return res.status(200).send("Ignored");
   } catch (error) {
     console.error("[webhook] ✗ Error processing Monday.com event:", error.message);
     console.error("[webhook] Stack:", error.stack);

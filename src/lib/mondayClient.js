@@ -8,12 +8,16 @@ const BOARD = {
   WORK_ORDERS:   "18402613691",
   TIME_ENTRIES:  "18406939306",
   EXPENSES:      "18406939432",
+  CUSTOMERS:     "18400951947",
 };
 
 const COL = {
   WORK_ORDERS: {
     EXECUTION_STATUS: "color_mm1s7ak1",
     WORKORDER_ID:     "text_mm1s82bz",
+  },
+  CUSTOMERS: {
+    ACCOUNT_NUMBER:   "text_mm0ryhr9",
   },
   TIME_ENTRIES: {
     TOTAL_HOURS:      "numeric_mm21p49k",
@@ -286,16 +290,35 @@ async function updateWorkOrderId(itemId, newId) {
   `);
 }
 
-async function getLatestWorkOrderIdFromBoard() {
-  console.log(`[mondayClient] getLatestWorkOrderIdFromBoard — querying board ${BOARD.WORK_ORDERS}`);
+async function updateCustomerAccountNumber(itemId, newId) {
+  if (!itemId || !newId) return;
+  const cv = { [COL.CUSTOMERS.ACCOUNT_NUMBER]: newId };
+
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.CUSTOMERS}
+        item_id: ${itemId}
+        column_values: "${esc(JSON.stringify(cv))}"
+      ) { id }
+    }
+  `);
+}
+
+/**
+ * Fetches the numeric part of the latest ID from a specific board/column.
+ * Used for seeding the sequential ID counter.
+ */
+async function getLatestNumericIdFromBoard(boardId, columnId) {
+  console.log(`[mondayClient] getLatestNumericIdFromBoard — board=${boardId} col=${columnId}`);
 
   const result = await graphql(`
     query {
-      boards(ids: [${BOARD.WORK_ORDERS}]) {
+      boards(ids: [${boardId}]) {
         items_page(limit: 100) {
           items {
             id
-            column_values(ids: ["${COL.WORK_ORDERS.WORKORDER_ID}"]) {
+            column_values(ids: ["${columnId}"]) {
               text
             }
           }
@@ -305,7 +328,7 @@ async function getLatestWorkOrderIdFromBoard() {
   `);
 
   const items = result.boards[0]?.items_page?.items || [];
-  console.log(`[mondayClient] Fetched ${items.length} items from WO board`);
+  console.log(`[mondayClient] Fetched ${items.length} items from board ${boardId}`);
 
   let maxId = 0;
   items.forEach(item => {
@@ -313,15 +336,20 @@ async function getLatestWorkOrderIdFromBoard() {
     const match = text.match(/\d+$/);
     if (match) {
       const num = parseInt(match[0], 10);
-      console.log(`[mondayClient]   item ${item.id}: text="${text}" → parsed num=${num}`);
       if (num > maxId) maxId = num;
-    } else {
-      console.log(`[mondayClient]   item ${item.id}: text="${text}" → no numeric ID found, skipping`);
     }
   });
 
-  console.log(`[mondayClient] getLatestWorkOrderIdFromBoard — returning maxId=${maxId}`);
+  console.log(`[mondayClient] getLatestNumericIdFromBoard — returning maxNum=${maxId}`);
   return maxId;
+}
+
+async function getLatestWorkOrderIdFromBoard() {
+  return getLatestNumericIdFromBoard(BOARD.WORK_ORDERS, COL.WORK_ORDERS.WORKORDER_ID);
+}
+
+async function getLatestCustomerAccountNumberFromBoard() {
+  return getLatestNumericIdFromBoard(BOARD.CUSTOMERS, COL.CUSTOMERS.ACCOUNT_NUMBER);
 }
 
 module.exports = {
@@ -331,7 +359,9 @@ module.exports = {
   updateTimeEntryItem,
   createExpenseItem,
   updateWorkOrderId,
+  updateCustomerAccountNumber,
   getLatestWorkOrderIdFromBoard,
+  getLatestCustomerAccountNumberFromBoard,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
