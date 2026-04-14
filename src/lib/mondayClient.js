@@ -336,7 +336,10 @@ async function getLatestNumericIdFromBoard(boardId, columnId) {
     const match = text.match(/\d+$/);
     if (match) {
       const num = parseInt(match[0], 10);
-      if (num > maxId) maxId = num;
+      // Ignore numbers larger than 2,147,483,647 (Postgres INT4 limit)
+      if (num < 2147483647 && num > maxId) {
+        maxId = num;
+      }
     }
   });
 
