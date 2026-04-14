@@ -88,4 +88,28 @@ router.get("/debug/seed-customers", async (req, res) => {
   }
 });
 
+/**
+ * Reset route to force the counter back to a proper number (e.g. 1000)
+ */
+router.get("/debug/reset-customers", async (req, res) => {
+  try {
+    const prisma = require("../lib/prisma");
+    const { BOARD } = require("../lib/mondayClient");
+    const startFrom = parseInt(req.query.start) || 1000;
+    
+    await prisma.sequentialIdCounter.upsert({
+      where: { boardId: BOARD.CUSTOMERS },
+      update: { currentId: startFrom },
+      create: { boardId: BOARD.CUSTOMERS, prefix: "CUST-", currentId: startFrom }
+    });
+    
+    res.json({ 
+      status: "ok", 
+      message: `Customer counter reset to ${startFrom}. Next ID will be ${startFrom + 1}` 
+    });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 module.exports = router;
