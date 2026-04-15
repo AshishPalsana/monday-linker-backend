@@ -214,7 +214,7 @@ router.patch(
   "/:id/clock-out",
   [
     param("id").isString().notEmpty(),
-    body("narrative").notEmpty().withMessage("narrative is required"),
+    body("narrative").isLength({ min: 10 }).withMessage("narrative must be at least 10 characters"),
     body("jobLocation").notEmpty().withMessage("jobLocation is required"),
     body("expenses").optional().isArray(),
     body("expenses.*.type").optional().isIn(["Fuel", "Lodging", "Meals", "Supplies"]),
@@ -223,6 +223,7 @@ router.patch(
     body("markComplete").optional({ values: "null" }).isBoolean(),
   ],
   validate,
+
   async (req, res, next) => {
     try {
       const entry = await prisma.timeEntry.findUnique({ where: { id: req.params.id } });
@@ -284,12 +285,31 @@ router.patch(
             });
           }
 
-          // 2. If technician marked the job complete, update WO Execution Status
-          if (markComplete && entry.entryType === "Job" && entry.workOrderRef) {
+          // 2. If technician marked the job complete, or if we need to update status
+          if (entry.entryType === "Job" && entry.workOrderRef) {
             try {
-              await monday.setWorkOrderComplete(entry.workOrderRef);
+              if (markComplete) {
+                await monday.setWorkOrderComplete(entry.workOrderRef);
+              } else {
+                // Keep "In Progress" or other status logic if needed
+                // For now, if they clock out WITHOUT marking complete, we might leave it in progress
+              }
             } catch (err) {
-              console.error("[clock-out] Monday.com setWorkOrderComplete error:", err.message);
+              console.error("[clock-out] Monday.com set status error:", err.message);
+            }
+            
+            // 2b. Automatically record hours as an "expense" on the Monday.com Expenses board
+            try {
+              await monday.createExpenseItem({
+                mondayUserId:  req.technician.id,
+                type:          "Supplies", // Using Supplies as placeholder for Labor until Labor type is added
+                amount:        hoursWorked, // recording hours as "amount" for now, needs charge-back logic
+                details:       `Labor Hours: ${hoursWorked}h | Narrative: ${narrative.slice(0, 100)}...`,
+                workOrderLabel: entry.workOrderLabel || entry.workOrderRef || "",
+                expenseItemName: `Labor — ${req.technician.name}`,
+              });
+            } catch (err) {
+              console.error("[clock-out] Monday.com labor expense sync error:", err.message);
             }
           }
 
@@ -307,6 +327,7 @@ router.patch(
         } catch (mondayErr) {
           console.error("[clock-out] Monday.com sync error:", mondayErr.message);
         }
+
       });
 
       emitTimeEvent("clock_out", {

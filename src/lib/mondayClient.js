@@ -9,7 +9,9 @@ const BOARD = {
   TIME_ENTRIES:  "18406939306",
   EXPENSES:      "18406939432",
   CUSTOMERS:     "18400951947",
+  LOCATIONS:     "18400965227",
 };
+
 
 const COL = {
   WORK_ORDERS: {
@@ -46,6 +48,24 @@ const EXPENSE_TYPE_IDS = {
   Meals:    3,
   Supplies: 4,
 };
+
+const WORK_ORDER_STATUS = {
+  // Scheduling Statuses
+  INCOMPLETE:               "Incomplete (needs details)",
+  UNSCHEDULED:              "Unscheduled",
+  SCHEDULED:                "Scheduled",
+  PRE_SCHEDULED:            "Pre-scheduled",
+  RETURN_TRIP_UNSCHEDULED:  "Return Trip Unscheduled",
+  RETURN_TRIP_SCHEDULED:    "Return Trip Scheduled",
+  
+  // Progress Statuses
+  IN_PROGRESS:              "In Progress",
+  ADDITIONAL_TRIP_PARTS:    "Additional Trip Needed (parts ordered)",
+  ADDITIONAL_TRIP_NEED_PARTS:"Additional Trip Needed (need parts)",
+  ADDITIONAL_TRIP_TIME:     "addl trip needed time only",
+  COMPLETE:                 "Complete",
+};
+
 
 // ── Helper ──────────────────────────────────────────────
 function getClient() {
@@ -90,9 +110,9 @@ async function graphql(query, retries = 3) {
   throw lastError;
 }
 
-async function setWorkOrderInProgress(workOrderItemId) {
-  if (!workOrderItemId) return;
-  const cv = { [COL.WORK_ORDERS.EXECUTION_STATUS]: { label: "In Progress" } };
+async function setWorkOrderExecutionStatus(workOrderItemId, statusLabel) {
+  if (!workOrderItemId || !statusLabel) return;
+  const cv = { [COL.WORK_ORDERS.EXECUTION_STATUS]: { label: statusLabel } };
 
   await graphql(`
     mutation {
@@ -104,21 +124,16 @@ async function setWorkOrderInProgress(workOrderItemId) {
     }
   `);
 }
+
+async function setWorkOrderInProgress(workOrderItemId) {
+  return setWorkOrderExecutionStatus(workOrderItemId, WORK_ORDER_STATUS.IN_PROGRESS);
+}
+
 
 async function setWorkOrderComplete(workOrderItemId) {
-  if (!workOrderItemId) return;
-  const cv = { [COL.WORK_ORDERS.EXECUTION_STATUS]: { label: "Completed" } };
-
-  await graphql(`
-    mutation {
-      change_multiple_column_values(
-        board_id: ${BOARD.WORK_ORDERS}
-        item_id: ${workOrderItemId}
-        column_values: "${esc(JSON.stringify(cv))}"
-      ) { id }
-    }
-  `);
+  return setWorkOrderExecutionStatus(workOrderItemId, WORK_ORDER_STATUS.COMPLETE);
 }
+
 
 async function createTimeEntryItem({
   technicianName,
@@ -355,7 +370,78 @@ async function getLatestCustomerAccountNumberFromBoard() {
   return getLatestNumericIdFromBoard(BOARD.CUSTOMERS, COL.CUSTOMERS.ACCOUNT_NUMBER);
 }
 
+/**
+ * Fetches details for a Location item.
+ */
+async function getLocationDetails(itemId) {
+  const result = await graphql(`
+    query {
+      items(ids: [${itemId}]) {
+        name
+        column_values(ids: [
+          "text_mm0r64n", 
+          "text_mm0rv9zr", 
+          "dropdown_mm0r9ajj", 
+          "text_mm0rrexv"
+        ]) {
+          id
+          text
+        }
+      }
+    }
+  `);
+
+  const item = result.items[0];
+  if (!item) return null;
+
+  const cv = id => item.column_values.find(c => c.id === id)?.text || "";
+
+  return {
+    name: item.name,
+    streetAddress: cv("text_mm0r64n"),
+    city: cv("text_mm0rv9zr"),
+    state: cv("dropdown_mm0r9ajj"),
+    zip: cv("text_mm0rrexv")
+  };
+}
+
+/**
+ * Fetches details for a Work Order item.
+ */
+async function getWorkOrderDetails(itemId) {
+  const result = await graphql(`
+    query {
+      items(ids: [${itemId}]) {
+        name
+        column_values(ids: ["board_relation_mm2czk6k"]) {
+          id
+          value
+          text
+        }
+      }
+    }
+  `);
+
+  const item = result.items[0];
+  if (!item) return null;
+
+  const locCol = item.column_values.find(c => c.id === "board_relation_mm2czk6k");
+  let locationId = null;
+  if (locCol?.value) {
+    try {
+      const parsed = JSON.parse(locCol.value);
+      locationId = parsed.linkedPulseIds?.[0]?.linkedPulseId || null;
+    } catch(e) {}
+  }
+
+  return {
+    name: item.name,
+    locationId
+  };
+}
+
 module.exports = {
+  setWorkOrderExecutionStatus,
   setWorkOrderInProgress,
   setWorkOrderComplete,
   createTimeEntryItem,
@@ -365,7 +451,12 @@ module.exports = {
   updateCustomerAccountNumber,
   getLatestWorkOrderIdFromBoard,
   getLatestCustomerAccountNumberFromBoard,
+  getLocationDetails,
+  getWorkOrderDetails,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
+  WORK_ORDER_STATUS,
 };
+
+

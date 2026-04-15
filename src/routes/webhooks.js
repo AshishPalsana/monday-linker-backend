@@ -1,7 +1,11 @@
 const express = require("express");
 const router = express.Router();
+const prisma = require("../lib/prisma");
 const { getNextSequentialId } = require("../lib/idGenerator");
-const { updateWorkOrderId, updateCustomerAccountNumber, BOARD } = require("../lib/mondayClient");
+const { updateWorkOrderId, updateCustomerAccountNumber, BOARD, getLocationDetails, getWorkOrderDetails } = require("../lib/mondayClient");
+const companyCam = require("../services/companyCamService");
+const xeroService = require("../services/xeroService");
+
 
 /**
  * Monday.com Webhook Endpoint
@@ -41,9 +45,72 @@ router.post("/monday/item-created", async (req, res, next) => {
     // Case 1: Work Order created
     if (String(boardId) === woBoardId) {
       console.log(`[webhook] Processing NEW WORK ORDER…`);
+
+      // ── Step A: Assign sequential WO ID synchronously (must be fast — Monday times out at 5s)
       const newWorkOrderId = await getNextSequentialId(woBoardId, "WO-");
       await updateWorkOrderId(pulseId, newWorkOrderId);
-      console.log(`[webhook] ✓ Successfully set Work Order ID "${newWorkOrderId}" on item ${pulseId}`);
+      console.log(`[webhook] ✓ Work Order ID "${newWorkOrderId}" set on pulse ${pulseId}`);
+
+      // ── Step B: Non-blocking post-processing (Xero + CompanyCam)
+      setImmediate(async () => {
+        // Fetch full WO details once for all downstream services
+        let wo = null;
+        try {
+          wo = await getWorkOrderDetails(pulseId);
+        } catch (err) {
+          console.error("[webhook] Failed to fetch WO details:", err.message);
+        }
+
+        const workOrderName = wo?.name || newWorkOrderId;
+
+        // ── Xero Project creation ──────────────────────────────────────────
+        try {
+          console.log(`[webhook] Xero: Creating project for ${newWorkOrderId}…`);
+          const xeroProjectId = await xeroService.createXeroProject({
+            workOrderId:   newWorkOrderId,
+            workOrderName: workOrderName,
+          });
+
+          // Persist mapping so frontend can display the Xero Project link
+          await prisma.workOrderSync.upsert({
+            where:  { mondayItemId: String(pulseId) },
+            update: { xeroProjectId, workOrderId: newWorkOrderId, syncError: null },
+            create: {
+              mondayItemId:  String(pulseId),
+              workOrderId:   newWorkOrderId,
+              xeroProjectId,
+            },
+          });
+
+          console.log(`[webhook] ✓ Xero Project created — projectId: ${xeroProjectId}`);
+        } catch (err) {
+          console.error("[webhook] ✗ Xero Project creation failed:", err.message);
+
+          // Record failure so admin can retry via POST /api/xero/retry-sync/:mondayItemId
+          await prisma.workOrderSync.upsert({
+            where:  { mondayItemId: String(pulseId) },
+            update: { syncError: err.message, workOrderId: newWorkOrderId },
+            create: {
+              mondayItemId: String(pulseId),
+              workOrderId:  newWorkOrderId,
+              syncError:    err.message,
+            },
+          }).catch((dbErr) => {
+            console.error("[webhook] Failed to persist Xero sync error to DB:", dbErr.message);
+          });
+        }
+
+        // ── CompanyCam report creation ─────────────────────────────────────
+        try {
+          if (wo && wo.locationId) {
+            console.log(`[webhook] CompanyCam: Triggering report for WO ${newWorkOrderId} at location ${wo.locationId}`);
+            // await companyCam.createProjectReport(wo.companyCamProjectId, { title: newWorkOrderId });
+          }
+        } catch (err) {
+          console.error("[webhook] CompanyCam report sync error:", err.message);
+        }
+      });
+
       return res.status(200).send("OK");
     }
 
@@ -55,6 +122,29 @@ router.post("/monday/item-created", async (req, res, next) => {
       console.log(`[webhook] ✓ Successfully set Customer Account Number "${newAccountNumber}" on item ${pulseId}`);
       return res.status(200).send("OK");
     }
+
+    // Case 3: Location created
+    if (String(boardId) === String(BOARD.LOCATIONS)) {
+      console.log(`[webhook] Processing NEW LOCATION…`);
+      setImmediate(async () => {
+        try {
+          const loc = await getLocationDetails(pulseId);
+          if (loc) {
+            await companyCam.createProject({
+              name: loc.name,
+              address: loc.streetAddress,
+              city: loc.city,
+              state: loc.state,
+              zip: loc.zip
+            });
+          }
+        } catch (err) {
+          console.error("[webhook] CompanyCam location sync error:", err.message);
+        }
+      });
+      return res.status(200).send("OK");
+    }
+
 
     // Default: Ignore other boards
     console.log(`[webhook] Ignoring — event is for board ${boardId}, not monitored for auto-ID`);

@@ -100,6 +100,46 @@ model Expense {
 }
 
 // ─────────────────────────────────────────────
+// Integration — stores OAuth2 tokens for Xero, etc.
+// ─────────────────────────────────────────────
+model Integration {
+  id            String   @id @default(cuid())
+  provider      String   @unique // "XERO"
+  
+  accessToken   String   @db.Text
+  refreshToken  String   @db.Text
+  idToken       String?  @db.Text
+  tokenType     String   @default("Bearer")
+  expiresAt     BigInt   // Unix timestamp in milliseconds
+  
+  // Storing the specific tenant/org connected
+  tenantId      String?
+  tenantName    String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("integrations")
+}
+
+// ─────────────────────────────────────────────
+// WorkOrderSync — tracks WO → Xero Project mapping
+// ─────────────────────────────────────────────
+model WorkOrderSync {
+  id            String   @id @default(cuid())
+  mondayItemId  String   @unique    // Monday.com pulse ID (string)
+  workOrderId   String              // e.g. "WO-1042"
+  xeroProjectId String?             // Xero Project UUID (null if creation pending/failed)
+  xeroStatus    String   @default("INPROGRESS") // INPROGRESS | CLOSED | ARCHIVED
+  syncError     String?   @db.Text  // Last error message if Xero sync failed
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("work_order_syncs")
+}
+
+// ─────────────────────────────────────────────
 // Enums
 // ─────────────────────────────────────────────
 enum EntryType {

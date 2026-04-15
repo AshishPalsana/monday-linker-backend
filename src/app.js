@@ -10,6 +10,7 @@ const timeEntryRoutes  = require("./routes/timeEntries");
 const expenseRoutes    = require("./routes/expenses");
 const authRoutes       = require("./routes/auth");
 const webhookRoutes    = require("./routes/webhooks");
+const xeroRoutes       = require("./routes/xero");
 const { errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -65,6 +66,7 @@ app.use("/api/technicians",  technicianRoutes);
 app.use("/api/time-entries", timeEntryRoutes);
 app.use("/api/expenses",     expenseRoutes);
 app.use("/api/webhooks",     webhookRoutes);
+app.use("/api/xero",         xeroRoutes);
 
 // ── 404 ────────────────────────────────────────────────
 app.use((_req, res) => {
