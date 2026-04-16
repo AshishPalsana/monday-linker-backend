@@ -147,8 +147,12 @@ router.get("/sync-status/:mondayItemId", async (req, res) => {
   try {
     // Fetch current record from DB
     if (!prisma.workOrderSync) {
-      console.error("[api/xero] prisma.workOrderSync is undefined. Ensure 'npx prisma generate' was run.");
-      return res.status(500).json({ error: "Database model 'workOrderSync' not found. Please redeploy or run prisma generate." });
+      const availableKeys = Object.keys(prisma).filter(k => !k.startsWith("_"));
+      console.error("[api/xero] prisma.workOrderSync is undefined. Available keys:", availableKeys);
+      return res.status(500).json({ 
+        error: `Database model 'workOrderSync' not found. Available models: ${availableKeys.join(", ")}`,
+        suggestion: "Please redeploy with a clean cache or run 'npx prisma generate'."
+      });
     }
 
     const record = await prisma.workOrderSync.findUnique({
