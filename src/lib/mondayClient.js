@@ -5,12 +5,12 @@ const MONDAY_API_URL = "https://api.monday.com/v2";
 
 // ── Board / Column constants ────────────────────────────
 const BOARD = {
-  WORK_ORDERS:   "18402613691",
-  TIME_ENTRIES:  "18406939306",
-  EXPENSES:      "18406939432",
-  CUSTOMERS:     "18400951947",
-  LOCATIONS:     "18400965227",
-  MASTER_COSTS:  "18407330739",
+  WORK_ORDERS: "18402613691",
+  TIME_ENTRIES: "18406939306",
+  EXPENSES: "18406939432",
+  CUSTOMERS: "18400951947",
+  LOCATIONS: "18400965227",
+  MASTER_COSTS: "18407330739",
   INVOICE_ITEMS: "18403393439",
 };
 
@@ -18,96 +18,96 @@ const BOARD = {
 const COL = {
   WORK_ORDERS: {
     EXECUTION_STATUS: "color_mm1s7ak1",
-    WORKORDER_ID:     "text_mm1s82bz",
-    BILLING_STAGE:    "color_mm2dgedg",
-    CUSTOMER:         "board_relation_mm2ctcg0",
-    LOCATION:         "board_relation_mm2czk6k",
+    WORKORDER_ID: "text_mm1s82bz",
+    BILLING_STAGE: "color_mm2dgedg",
+    CUSTOMER: "board_relation_mm2ctcg0",
+    LOCATION: "board_relation_mm2czk6k",
     MASTER_COSTS_REL: "board_relation_mm26prz0",
     TIME_ENTRIES_REL: "board_relation_mm2cnxb5",
-    EXPENSES_REL:     "board_relation_mm2cgry0",
-    WORK_PERFORMED:   "long_text_mm15kfzp",
-    DESCRIPTION:      "long_text_mm14ee7h",
+    EXPENSES_REL: "board_relation_mm2cgry0",
+    WORK_PERFORMED: "long_text_mm15kfzp",
+    DESCRIPTION: "long_text_mm14ee7h",
   },
   CUSTOMERS: {
-    ACCOUNT_NUMBER:   "text_mm0ryhr9",
-    EMAIL:            "email_mm0rhasv",
-    PHONE:            "phone_mm0rpam7",
-    BILLING_ADDRESS:  "long_text_mm0r9ndz",
-    BILLING_TERMS:    "dropdown_mm0r9ywe",
-    XERO_CONTACT_ID:  "text_mm0rdxmk",
+    ACCOUNT_NUMBER: "text_mm0ryhr9",
+    EMAIL: "email_mm0rhasv",
+    PHONE: "phone_mm0rpam7",
+    BILLING_ADDRESS: "long_text_mm0r9ndz",
+    BILLING_TERMS: "dropdown_mm0r9ywe",
+    XERO_CONTACT_ID: "text_mm0rdxmk",
     XERO_SYNC_STATUS: "color_mm0rxh2b",
   },
   LOCATIONS: {
-    STREET:           "text_mm0r64n",
-    CITY:             "text_mm0rv9zr",
-    STATE:            "dropdown_mm0r9ajj",
-    ZIP:              "text_mm0rrexv",
+    STREET: "text_mm0r64n",
+    CITY: "text_mm0rv9zr",
+    STATE: "dropdown_mm0r9ajj",
+    ZIP: "text_mm0rrexv",
   },
   TIME_ENTRIES: {
-    TOTAL_HOURS:      "numeric_mm21p49k",
-    CLOCK_IN:         "date_mm21zkpj",
-    CLOCK_OUT:        "date_mm2155gg",
-    TASK_TYPE:        "dropdown_mm21wscp",
-    WORK_ORDERS_REL:  "board_relation_mm2cy69m",
-    TECHNICIANS:      "multiple_person_mm21m56s",
-    LOCATIONS_REL:    "board_relation_mm21vtd1",
-    EXPENSES_ADDED:   "boolean_mm212dcy",
+    TOTAL_HOURS: "numeric_mm21p49k",
+    CLOCK_IN: "date_mm21zkpj",
+    CLOCK_OUT: "date_mm2155gg",
+    TASK_TYPE: "dropdown_mm21wscp",
+    WORK_ORDERS_REL: "board_relation_mm2cy69m",
+    TECHNICIANS: "multiple_person_mm21m56s",
+    LOCATIONS_REL: "board_relation_mm21vtd1",
+    EXPENSES_ADDED: "boolean_mm212dcy",
   },
   EXPENSES: {
-    TECHNICIAN:       "multiple_person_mm212yhb",
-    TIME_ENTRY_REL:   "board_relation_mm2cdgz8",
-    WORK_ORDER_REL:   "board_relation_mm2cw5x5",  // board_relation (was wrong text col)
-    RECEIPT:          "file_mm21j7d7",
-    DESCRIPTION:      "text_mm213m15",
-    EXPENSE_TYPE:     "dropdown_mm215jhc",
-    AMOUNT:           "numeric_mm21a0kv",
+    TECHNICIAN: "multiple_person_mm212yhb",
+    TIME_ENTRY_REL: "board_relation_mm2cdgz8",
+    WORK_ORDER_REL: "board_relation_mm2cw5x5",  // board_relation (was wrong text col)
+    RECEIPT: "file_mm21j7d7",
+    DESCRIPTION: "text_mm213m15",
+    EXPENSE_TYPE: "dropdown_mm215jhc",
+    AMOUNT: "numeric_mm21a0kv",
   },
   MASTER_COSTS: {
-    WORK_ORDERS_REL:  "board_relation_mm26prz0",
-    TECHNICIANS_REL:  "board_relation_mm26z5dh",
-    TYPE:             "color_mm25xk4h",   // Labor | Parts | Expense
-    QUANTITY:         "numeric_mm256yw2",
-    RATE:             "numeric_mm25xvx0",
-    DESCRIPTION:      "text_mm25nhbc",
-    TOTAL_COST:       "numeric_mm25953b",
-    DATE:             "date_mm26snwa",
-    INVOICE_STATUS:   "color_mm26qn4h",
+    WORK_ORDERS_REL: "board_relation_mm26prz0",
+    TECHNICIANS_REL: "board_relation_mm26z5dh",
+    TYPE: "color_mm25xk4h",   // Labor | Parts | Expense
+    QUANTITY: "numeric_mm256yw2",
+    RATE: "numeric_mm25xvx0",
+    DESCRIPTION: "text_mm25nhbc",
+    TOTAL_COST: "numeric_mm25953b",
+    DATE: "date_mm26snwa",
+    INVOICE_STATUS: "color_mm26qn4h",
   },
   INVOICE_ITEMS: {
-    WORK_ORDERS_REL:  "board_relation_mm1ae4as",
-    ITEM_TYPE:        "dropdown_mm1ae5fd",
-    QUANTITY:         "numeric_mm1ab4nj",
-    UNIT_PRICE:       "numeric_mm1a6h84",
-    BILLING_STATUS:   "color_mm1ae7q7",
-    INVOICE_ID:       "text_mm1ay1cy",
-    DESCRIPTION:      "long_text_mm1cdk36",
-    REVENUE_ACCOUNT:  "color_mm1csz5m",
+    WORK_ORDERS_REL: "board_relation_mm1ae4as",
+    ITEM_TYPE: "dropdown_mm1ae5fd",
+    QUANTITY: "numeric_mm1ab4nj",
+    UNIT_PRICE: "numeric_mm1a6h84",
+    BILLING_STATUS: "color_mm1ae7q7",
+    INVOICE_ID: "text_mm1ay1cy",
+    DESCRIPTION: "long_text_mm1cdk36",
+    REVENUE_ACCOUNT: "color_mm1csz5m",
   },
 };
 
 // Dropdown label → Monday.com dropdown ID for the Expenses board
 const EXPENSE_TYPE_IDS = {
-  Fuel:     1,
-  Lodging:  2,
-  Meals:    3,
+  Fuel: 1,
+  Lodging: 2,
+  Meals: 3,
   Supplies: 4,
 };
 
 const WORK_ORDER_STATUS = {
   // Scheduling Statuses
-  INCOMPLETE:               "Incomplete",
-  UNSCHEDULED:              "Unscheduled",
-  SCHEDULED:                "Scheduled",
-  PRE_SCHEDULED:            "Pre-scheduled",
-  RETURN_TRIP_UNSCHEDULED:  "Return Trip Unscheduled",
-  RETURN_TRIP_SCHEDULED:    "Return Trip Scheduled",
-  
+  INCOMPLETE: "Incomplete",
+  UNSCHEDULED: "Unscheduled",
+  SCHEDULED: "Scheduled",
+  PRE_SCHEDULED: "Pre-scheduled",
+  RETURN_TRIP_UNSCHEDULED: "Return Trip Unscheduled",
+  RETURN_TRIP_SCHEDULED: "Return Trip Scheduled",
+
   // Progress Statuses
-  IN_PROGRESS:              "In Progress",
-  ADDITIONAL_TRIP_PARTS:    "Additional Trip Needed (parts ordered)",
-  ADDITIONAL_TRIP_NEED_PARTS:"Additional Trip Needed (need parts)",
-  ADDITIONAL_TRIP_TIME:     "Additional Trip Needed (Time Only)",
-  COMPLETE:                 "Completed",
+  IN_PROGRESS: "In Progress",
+  ADDITIONAL_TRIP_PARTS: "Additional Trip Needed (parts ordered)",
+  ADDITIONAL_TRIP_NEED_PARTS: "Additional Trip Needed (need parts)",
+  ADDITIONAL_TRIP_TIME: "Additional Trip Needed (Time Only)",
+  COMPLETE: "Completed",
 };
 
 
@@ -121,7 +121,7 @@ function getClient() {
     headers: {
       Authorization: token,
       "Content-Type": "application/json",
-      "API-Version":  "2024-01",
+      "API-Version": "2024-01",
     },
   });
 }
@@ -376,7 +376,7 @@ async function createExpenseItem({
   if (details) cv[COL.EXPENSES.DESCRIPTION] = details;
   cv[COL.EXPENSES.EXPENSE_TYPE] = { ids: [typeId], override_all_ids: "true" };
   cv[COL.EXPENSES.AMOUNT] = String(amount);
-  
+
   // Link to Work Order via board_relation
   if (workOrderId) {
     cv[COL.EXPENSES.WORK_ORDER_REL] = { item_ids: [parseInt(workOrderId, 10)] };
@@ -542,7 +542,7 @@ async function getWorkOrderDetails(itemId) {
     try {
       const parsed = JSON.parse(locCol.value);
       locationId = parsed.linkedPulseIds?.[0]?.linkedPulseId || null;
-    } catch(e) {}
+    } catch (e) { }
   }
 
   return {
@@ -580,9 +580,9 @@ async function getCustomerDetails(itemId) {
   return {
     name: item.name,
     accountNumber: cv(COL.CUSTOMERS.ACCOUNT_NUMBER),
-    email:         cv(COL.CUSTOMERS.EMAIL),
-    phone:         cv(COL.CUSTOMERS.PHONE),
-    address:       cv(COL.CUSTOMERS.BILLING_ADDRESS),
+    email: cv(COL.CUSTOMERS.EMAIL),
+    phone: cv(COL.CUSTOMERS.PHONE),
+    address: cv(COL.CUSTOMERS.BILLING_ADDRESS),
   };
 }
 
@@ -615,44 +615,35 @@ module.exports = {
   WORK_ORDER_STATUS,
 };
 
-// ── Master Costs ─────────────────────────────────────────────────────────────
-
-/**
- * Fetches all Master Cost items, optionally filtered by a Work Order Monday ID.
- * @param {string|null} workOrderId
- */
-/**
- * Fetches all Master Cost items, optionally filtered by a Work Order Monday ID.
- * @param {string|null} workOrderId
- */
 async function getMasterCosts(workOrderId) {
   const MC = COL.MASTER_COSTS;
 
-  // If workOrderId provided, filter using items_by_column_values on the Master Costs board
+  // If workOrderId provided, filter using items_page_by_column_values on the Master Costs board
   if (workOrderId) {
     const result = await graphql(`
       query {
-        items_by_column_values(
+        items_page_by_column_values(
           board_id: ${BOARD.MASTER_COSTS}, 
-          column_id: "${MC.WORK_ORDERS_REL}", 
-          column_value: "${workOrderId}"
+          columns: [{ column_id: "${MC.WORK_ORDERS_REL}", column_values: ["${workOrderId}"] }]
         ) {
-          id
-          name
-          created_at
-          column_values(ids: [
-            "${MC.TYPE}",
-            "${MC.QUANTITY}",
-            "${MC.RATE}",
-            "${MC.TOTAL_COST}",
-            "${MC.DESCRIPTION}",
-            "${MC.DATE}",
-            "${MC.INVOICE_STATUS}"
-          ]) { id text value }
+          items {
+            id
+            name
+            created_at
+            column_values(ids: [
+              "${MC.TYPE}",
+              "${MC.QUANTITY}",
+              "${MC.RATE}",
+              "${MC.TOTAL_COST}",
+              "${MC.DESCRIPTION}",
+              "${MC.DATE}",
+              "${MC.INVOICE_STATUS}"
+            ]) { id text value }
+          }
         }
       }
     `);
-    return result.items_by_column_values ?? [];
+    return result.items_page_by_column_values?.items ?? [];
   }
 
   const result = await graphql(`
@@ -685,15 +676,15 @@ async function getMasterCosts(workOrderId) {
  * Creates a new item on the Master Costs board.
  */
 async function createMasterCostItem({ workOrderId, workOrderLabel, type, quantity, rate, totalCost, description, date, mondayUserId }) {
-  const MC  = COL.MASTER_COSTS;
-  const cv  = {};
+  const MC = COL.MASTER_COSTS;
+  const cv = {};
 
-  cv[MC.TYPE]       = { label: type };
-  cv[MC.QUANTITY]   = quantity;
-  cv[MC.RATE]       = rate;
+  cv[MC.TYPE] = { label: type };
+  cv[MC.QUANTITY] = quantity;
+  cv[MC.RATE] = rate;
   cv[MC.TOTAL_COST] = totalCost;
   if (description) cv[MC.DESCRIPTION] = { text: description };
-  if (date)        cv[MC.DATE]        = { date };
+  if (date) cv[MC.DATE] = { date };
 
   const itemName = `${type} — ${description || workOrderLabel || ""}`.slice(0, 100);
 
@@ -731,16 +722,16 @@ async function createMasterCostItem({ workOrderId, workOrderLabel, type, quantit
  * Updates columns on an existing Master Costs item.
  */
 async function updateMasterCostItem(mondayItemId, updates) {
-  const MC  = COL.MASTER_COSTS;
-  const cv  = {};
+  const MC = COL.MASTER_COSTS;
+  const cv = {};
 
-  if (updates.type        !== undefined) cv[MC.TYPE]       = { label: updates.type };
-  if (updates.quantity    !== undefined) cv[MC.QUANTITY]   = updates.quantity;
-  if (updates.rate        !== undefined) cv[MC.RATE]       = updates.rate;
-  if (updates.totalCost   !== undefined) cv[MC.TOTAL_COST] = updates.totalCost;
-  if (updates.description !== undefined) cv[MC.DESCRIPTION]= { text: updates.description };
-  if (updates.date        !== undefined) cv[MC.DATE]       = { date: updates.date };
-  if (updates.invoiceStatus !== undefined) cv[MC.INVOICE_STATUS]= { label: updates.invoiceStatus };
+  if (updates.type !== undefined) cv[MC.TYPE] = { label: updates.type };
+  if (updates.quantity !== undefined) cv[MC.QUANTITY] = updates.quantity;
+  if (updates.rate !== undefined) cv[MC.RATE] = updates.rate;
+  if (updates.totalCost !== undefined) cv[MC.TOTAL_COST] = updates.totalCost;
+  if (updates.description !== undefined) cv[MC.DESCRIPTION] = { text: updates.description };
+  if (updates.date !== undefined) cv[MC.DATE] = { date: updates.date };
+  if (updates.invoiceStatus !== undefined) cv[MC.INVOICE_STATUS] = { label: updates.invoiceStatus };
 
   if (!Object.keys(cv).length) return;
 
@@ -769,22 +760,22 @@ async function deleteMasterCostItem(mondayItemId) {
 /**
  * Creates an item on the Invoice Line Items board.
  */
-async function createInvoiceItem({ 
-  workOrderId, 
-  type, 
-  quantity, 
-  unitPrice, 
+async function createInvoiceItem({
+  workOrderId,
+  type,
+  quantity,
+  unitPrice,
   description,
-  itemName 
+  itemName
 }) {
   const INV = COL.INVOICE_ITEMS;
   const cv = {};
 
-  cv[INV.QUANTITY]    = quantity;
-  cv[INV.UNIT_PRICE]  = unitPrice;
+  cv[INV.QUANTITY] = quantity;
+  cv[INV.UNIT_PRICE] = unitPrice;
   if (description) cv[INV.DESCRIPTION] = { text: description };
-  
-  const typeId = type === "Labor" ? 1 : 2; 
+
+  const typeId = type === "Labor" ? 1 : 2;
   cv[INV.ITEM_TYPE] = { ids: [typeId] };
 
   const result = await graphql(`
@@ -884,7 +875,7 @@ async function updateCustomerBillingDetails(pulseId, billingAddress, terms) {
   const cv = {};
   if (billingAddress !== undefined) cv[CUST.BILLING_ADDRESS] = { text: billingAddress };
   if (terms !== undefined) {
-     cv[CUST.BILLING_TERMS] = terms ? { labels: [terms] } : { ids: [] };
+    cv[CUST.BILLING_TERMS] = terms ? { labels: [terms] } : { ids: [] };
   }
 
   await graphql(`
