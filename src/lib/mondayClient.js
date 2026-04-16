@@ -628,29 +628,31 @@ module.exports = {
 async function getMasterCosts(workOrderId) {
   const MC = COL.MASTER_COSTS;
 
-  // If workOrderId provided, filter via linked_items API
+  // If workOrderId provided, filter using items_by_column_values on the Master Costs board
   if (workOrderId) {
     const result = await graphql(`
       query {
-        items(ids: [${workOrderId}]) {
-          linked_items(link_to_item_column_id: "${MC.WORK_ORDERS_REL}", linked_board_id: ${BOARD.MASTER_COSTS}) {
-            id
-            name
-            created_at
-            column_values(ids: [
-              "${MC.TYPE}",
-              "${MC.QUANTITY}",
-              "${MC.RATE}",
-              "${MC.TOTAL_COST}",
-              "${MC.DESCRIPTION}",
-              "${MC.DATE}",
-              "${MC.INVOICE_STATUS}"
-            ]) { id text value }
-          }
+        items_by_column_values(
+          board_id: ${BOARD.MASTER_COSTS}, 
+          column_id: "${MC.WORK_ORDERS_REL}", 
+          column_value: "${workOrderId}"
+        ) {
+          id
+          name
+          created_at
+          column_values(ids: [
+            "${MC.TYPE}",
+            "${MC.QUANTITY}",
+            "${MC.RATE}",
+            "${MC.TOTAL_COST}",
+            "${MC.DESCRIPTION}",
+            "${MC.DATE}",
+            "${MC.INVOICE_STATUS}"
+          ]) { id text value }
         }
       }
     `);
-    return result.items?.[0]?.linked_items ?? [];
+    return result.items_by_column_values ?? [];
   }
 
   const result = await graphql(`
