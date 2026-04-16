@@ -47,10 +47,8 @@ router.post(
       // 3. Promote items 1:1
       for (const cost of costs) {
         try {
-          // Check if already promoted (using the INVOICE_STATUS column as a proxy for now, 
-          // or we can add a dedicated board_relation column for exact linking)
           const statusVal = cost.column_values.find(c => c.id === monday.COL.MASTER_COSTS.INVOICE_STATUS)?.text;
-          
+
           if (statusVal === "Invoiced" || statusVal === "Billed") {
             results.skipped++;
             continue;
@@ -61,19 +59,15 @@ router.post(
           const costRate = parseFloat(cost.column_values.find(c => c.id === monday.COL.MASTER_COSTS.RATE)?.text || 0);
           const description = cost.column_values.find(c => c.id === monday.COL.MASTER_COSTS.DESCRIPTION)?.text || cost.name;
 
-          // Apply Pricing Strategy
           let unitPrice = costRate;
           if (type === "Parts") {
             unitPrice = costRate * parseFloat(settings.partsMarkup);
           } else if (type === "Expense") {
             unitPrice = costRate * parseFloat(settings.expenseMarkup);
           } else if (type === "Labor") {
-            // Labor billing rate is usually fixed/predefined per tech or job
-            // For now, using the rate as-is or applying a default
-            unitPrice = costRate > 0 ? costRate : 85.00; 
+            unitPrice = costRate > 0 ? costRate : 85.00;
           }
 
-          // Create Invoice Item
           const invoiceItemId = await monday.createInvoiceItem({
             workOrderId,
             type,
@@ -86,7 +80,7 @@ router.post(
           // Update Master Cost status to 'Invoiced'
           await monday.updateMasterCostItem(cost.id, {
             // We use the status column to flag it
-            invoiceStatus: "Invoiced" 
+            invoiceStatus: "Invoiced"
           });
 
           results.promoted++;
