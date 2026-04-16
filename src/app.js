@@ -5,13 +5,15 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const { attachSocketIO } = require("./lib/socketServer");
 
-const technicianRoutes = require("./routes/technicians");
-const timeEntryRoutes  = require("./routes/timeEntries");
-const expenseRoutes    = require("./routes/expenses");
-const authRoutes       = require("./routes/auth");
-const webhookRoutes    = require("./routes/webhooks");
-const xeroRoutes       = require("./routes/xero");
-const { errorHandler } = require("./middleware/errorHandler");
+const technicianRoutes  = require("./routes/technicians");
+const timeEntryRoutes   = require("./routes/timeEntries");
+const expenseRoutes     = require("./routes/expenses");
+const masterCostRoutes  = require("./routes/masterCosts");
+const authRoutes        = require("./routes/auth");
+const webhookRoutes     = require("./routes/webhooks");
+const xeroRoutes        = require("./routes/xero");
+const billingRoutes     = require("./routes/billing");
+const { errorHandler }  = require("./middleware/errorHandler");
 
 const app = express();
 
@@ -61,12 +63,14 @@ app.get("/api/debug/counters", async (_req, res) => {
 });
 
 // ── Routes ─────────────────────────────────────────────
-app.use("/api/auth",         authRoutes);
-app.use("/api/technicians",  technicianRoutes);
-app.use("/api/time-entries", timeEntryRoutes);
-app.use("/api/expenses",     expenseRoutes);
-app.use("/api/webhooks",     webhookRoutes);
-app.use("/api/xero",         xeroRoutes);
+app.use("/api/auth",          authRoutes);
+app.use("/api/technicians",   technicianRoutes);
+app.use("/api/time-entries",  timeEntryRoutes);
+app.use("/api/expenses",      expenseRoutes);
+app.use("/api/master-costs",  masterCostRoutes);
+app.use("/api/webhooks",      webhookRoutes);
+app.use("/api/xero",          xeroRoutes);
+app.use("/api/billing",       billingRoutes);
 
 // ── 404 ────────────────────────────────────────────────
 app.use((_req, res) => {

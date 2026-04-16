@@ -17,6 +17,8 @@ model Technician {
   id          String      @id  // monday.com user ID (string from SDK context)
   name        String
   email       String?     @unique
+  burdenRate  Decimal     @default(0.00) @db.Decimal(10, 2)
+  billingRate Decimal     @default(85.00) @db.Decimal(10, 2)
   isAdmin     Boolean     @default(false)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -59,6 +61,7 @@ model TimeEntry {
 
   // Monday.com item ID — set after creating the item on the Time Entries board
   mondayItemId    String?
+  masterCostItemId String?   // Linked ID on the Master Costs board
 
   // Timing
   clockIn         DateTime
@@ -91,6 +94,7 @@ model Expense {
   amount      Decimal      @db.Decimal(10, 2)
   details     String?
   receiptUrl  String?
+  masterCostItemId String?   // Linked ID on the Master Costs board
 
   createdAt   DateTime     @default(now())
 
@@ -123,11 +127,29 @@ model Integration {
 }
 
 // ─────────────────────────────────────────────
+// WorkOrder — tracks status and locking
+// ─────────────────────────────────────────────
+model WorkOrder {
+  id            String   @id // monday.com item ID
+  workOrderId   String?  // e.g. "WO-1042"
+  billingStage  String?  // e.g. "Ready for Billing", "Sent to Xero"
+  isLocked      Boolean  @default(false)
+  
+  sync          WorkOrderSync?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("work_orders")
+}
+
+// ─────────────────────────────────────────────
 // WorkOrderSync — tracks WO → Xero Project mapping
 // ─────────────────────────────────────────────
 model WorkOrderSync {
   id            String   @id @default(cuid())
   mondayItemId  String   @unique    // Monday.com pulse ID (string)
+  workOrder     WorkOrder @relation(fields: [mondayItemId], references: [id])
   workOrderId   String              // e.g. "WO-1042"
   xeroProjectId String?             // Xero Project UUID (null if creation pending/failed)
   xeroStatus    String   @default("INPROGRESS") // INPROGRESS | CLOSED | ARCHIVED
@@ -159,4 +181,15 @@ enum ExpenseType {
   Lodging
   Meals
   Supplies
+}
+// ─────────────────────────────────────────────
+// GlobalSettings — pricing and markups
+// ─────────────────────────────────────────────
+model GlobalSettings {
+  id                    String   @id @default("default")
+  partsMarkup           Decimal  @default(1.35) @db.Decimal(4, 2)
+  expenseMarkup         Decimal  @default(1.10) @db.Decimal(4, 2)
+  updatedAt             DateTime @updatedAt
+
+  @@map("global_settings")
 }

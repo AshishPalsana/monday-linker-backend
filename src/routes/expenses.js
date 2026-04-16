@@ -1,9 +1,5 @@
-const express = require("express");
-const { body, param } = require("express-validator");
-const prisma = require("../lib/prisma");
-const { requireAuth, requireAdmin } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
-const monday = require("../lib/mondayClient");
+const { syncExpenseToCost, removeCost } = require("../services/monday/syncService");
+const { requireBillingLock } = require("../middleware/billingLock");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -52,6 +48,7 @@ router.post(
       .withMessage("receiptUrl must be a valid URL"),
   ],
   validate,
+  requireBillingLock,
   async (req, res, next) => {
     try {
       const { timeEntryId, type, amount, details, receiptUrl } = req.body;
@@ -83,9 +80,13 @@ router.post(
             type,
             amount: parseFloat(amount),
             details: details ?? "",
-            workOrderLabel: entry.workOrderLabel || entry.workOrderRef || "",
+            workOrderId: entry.workOrderRef || null,
+            timeEntryMondayId: entry.mondayItemId || null,
             expenseItemName: `${type} — ${req.technician.name}`,
           });
+          
+          // Trigger sync to Master Costs board
+          await syncExpenseToCost(expense.id);
         } catch (mondayErr) {
           console.error(
             "[expenses POST] Monday.com sync error:",
@@ -110,6 +111,7 @@ router.patch(
     body("receiptUrl").optional().isURL(),
   ],
   validate,
+  requireBillingLock,
   async (req, res, next) => {
     try {
       const existing = await prisma.expense.findUnique({
@@ -136,6 +138,11 @@ router.patch(
         },
       });
 
+      // Sync update to Master Costs
+      setImmediate(() => {
+        syncExpenseToCost(updated.id).catch(console.error);
+      });
+
       res.json({ data: updated });
     } catch (err) {
       next(err);
@@ -148,8 +155,13 @@ router.delete(
   requireAdmin,
   [param("id").isString().notEmpty()],
   validate,
+  requireBillingLock,
   async (req, res, next) => {
     try {
+      const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
+      if (existing?.masterCostItemId) {
+        removeCost(existing.masterCostItemId).catch(console.error);
+      }
       await prisma.expense.delete({ where: { id: req.params.id } });
       res.status(204).send();
     } catch (err) {
