@@ -279,6 +279,26 @@ router.patch(
 
       const { narrative, jobLocation, expenses = [], markComplete = false } = req.body;
 
+      // ── Expense Validation ────────────────────────────────────────────────
+      // Requirement: Prevent clock-out if any expenses are incomplete.
+      // 1. Check existing expenses for this session
+      const existingExpenses = await prisma.expense.findMany({ 
+        where: { timeEntryId: entry.id } 
+      });
+
+      // 2. Combine with new expenses being added during clock-out
+      const allExpenses = [...existingExpenses, ...expenses];
+
+      // 3. Verify all have a valid type and non-zero amount
+      const incomplete = allExpenses.find(e => !e.type || !e.amount || parseFloat(e.amount) <= 0);
+      
+      if (incomplete) {
+        return res.status(400).json({ 
+          error: `Incomplete expense detected (${incomplete.type || "Unknown"}). Please ensure all expenses have a valid amount before clocking out.`,
+          code: "INCOMPLETE_EXPENSE"
+        });
+      }
+
       const updated = await prisma.$transaction(async (tx) => {
         const updatedEntry = await tx.timeEntry.update({
           where: { id: entry.id },

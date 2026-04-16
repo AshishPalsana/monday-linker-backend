@@ -212,6 +212,105 @@ async function createXeroProject({ workOrderId, workOrderName, deadlineDays = DE
 }
 
 /**
+ * Creates or updates a Contact in Xero.
+ *
+ * @param {object} params
+ * @param {string} params.name           - Customer Name
+ * @param {string} [params.email]        - Email
+ * @param {string} [params.phone]        - Phone
+ * @param {string} [params.addressLine1] - Structured Line 1
+ * @param {string} [params.addressLine2] - Structured Line 2
+ * @param {string} [params.city]         - City
+ * @param {string} [params.state]        - State/Region
+ * @param {string} [params.zip]          - ZIP Code
+ * @param {string} [params.country]      - Country
+ * @param {string} [params.address]      - Fallback combined address
+ * @param {string} [params.accountNumber]- Monday Customer Account Number (e.g. CUST-1045)
+ *
+ * @returns {string} xeroContactId (UUID)
+ */
+/**
+ * Creates or updates a Contact in Xero.
+ * Hardened with:
+ * - Idempotency: Uses xeroContactId to update instead of create.
+ * - Recovery: If contact is missing (404), it clears the ID and creates a new one.
+ * - Timeout: Aborts after 10s.
+ */
+async function createXeroContact({
+  name,
+  email,
+  phone,
+  addressLine1,
+  addressLine2,
+  city,
+  state,
+  zip,
+  country,
+  address,
+  accountNumber,
+  xeroContactId, // Optional, for updates
+}) {
+  console.log(`[xeroService] createXeroContact — name="${name}" xeroContactId=${xeroContactId || "NEW"}`);
+
+  const { xero, tenantId } = await getAuthenticatedClient();
+
+  const contact = {
+    contactID: xeroContactId || undefined,
+    name,
+    emailAddress: email || undefined,
+    accountNumber: accountNumber || undefined,
+    phones: phone ? [{ phoneType: "DEFAULT", phoneNumber: phone }] : [],
+    addresses: [{
+      addressType: "POBOX",
+      addressLine1: addressLine1 || address || undefined,
+      addressLine2: addressLine2 || undefined,
+      city: city || undefined,
+      region: state || undefined,
+      postalCode: zip || undefined,
+      country: country || undefined,
+    }],
+  };
+
+  const syncTask = async () => {
+    try {
+      const response = await xero.accountingApi.createContacts(tenantId, {
+        contacts: [contact],
+      });
+      return response.body?.contacts?.[0]?.contactID;
+    } catch (err) {
+      // Recovery: If contact ID exists but was deleted/not found in Xero (404)
+      if (xeroContactId && (err.response?.status === 404 || err.status === 404)) {
+        console.warn(`[xeroService] Contact ${xeroContactId} not found in Xero. Retrying as new creation.`);
+        delete contact.contactID;
+        const retryResponse = await xero.accountingApi.createContacts(tenantId, {
+          contacts: [contact],
+        });
+        return retryResponse.body?.contacts?.[0]?.contactID;
+      }
+      throw err;
+    }
+  };
+
+  // 10s Timeout Guard
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("TIMEOUT: Xero API took longer than 10s")), 10000);
+  });
+
+  try {
+    const resultId = await Promise.race([syncTask(), timeoutPromise]);
+    if (!resultId) throw new Error("Xero API returned no contactID.");
+
+    console.log(`[xeroService] ✓ Xero Contact synced — contactId=${resultId}`);
+    return resultId;
+  } catch (err) {
+    const body = err.response?.body;
+    const detail = body?.Elements?.[0]?.ValidationErrors?.[0]?.Message || body?.Message || err.message;
+    console.error("[xeroService] Sync error:", detail);
+    throw new Error(detail);
+  }
+}
+
+/**
  * Updates the status of a Xero Project (e.g., close when WO is complete).
  *
  * @param {string} xeroProjectId - UUID of the Xero Project
@@ -236,5 +335,6 @@ async function updateXeroProjectStatus(xeroProjectId, status) {
 module.exports = {
   createXeroProject,
   updateXeroProjectStatus,
+  createXeroContact,
   getAuthenticatedClient, // exported for advanced use (e.g., future billing routes)
 };

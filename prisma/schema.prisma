@@ -144,6 +144,37 @@ model WorkOrder {
 }
 
 // ─────────────────────────────────────────────
+// Customer — tracks Customer details and structured addresses
+// ─────────────────────────────────────────────
+model Customer {
+  id               String   @id // monday pulse ID (string)
+  name             String
+  email            String?
+  phone            String?
+  accountNumber    String?  // sequential "CUST-XXXX"
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  state            String?
+  zip              String?
+  country          String?
+  billingAddress   String?  @db.Text // Combined comma-separated for Monday board
+  billingTerms     String?  // User-editable logic (Net 30, etc)
+  
+  xeroContactId    String?  // Xero Contact UUID
+  xeroSyncStatus   String   @default("Pending") // Pending | Synced | Failed
+  syncErrorMessage String?  @db.Text
+  syncErrorCode    String?
+  lastSyncAt       DateTime?
+  syncVersion      Int      @default(0) // For concurrency control
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────
 // WorkOrderSync — tracks WO → Xero Project mapping
 // ─────────────────────────────────────────────
 model WorkOrderSync {

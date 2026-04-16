@@ -32,6 +32,10 @@ const COL = {
     ACCOUNT_NUMBER:   "text_mm0ryhr9",
     EMAIL:            "email_mm0rhasv",
     PHONE:            "phone_mm0rpam7",
+    BILLING_ADDRESS:  "long_text_mm0r9ndz",
+    BILLING_TERMS:    "dropdown_mm0r9ywe",
+    XERO_CONTACT_ID:  "text_mm0rdxmk",
+    XERO_SYNC_STATUS: "color_mm0rxh2b",
   },
   LOCATIONS: {
     STREET:           "text_mm0r64n",
@@ -547,6 +551,41 @@ async function getWorkOrderDetails(itemId) {
   };
 }
 
+/**
+ * Fetches details for a Customer item.
+ */
+async function getCustomerDetails(itemId) {
+  const result = await graphql(`
+    query {
+      items(ids: [${itemId}]) {
+        name
+        column_values(ids: [
+          "${COL.CUSTOMERS.ACCOUNT_NUMBER}",
+          "${COL.CUSTOMERS.EMAIL}",
+          "${COL.CUSTOMERS.PHONE}",
+          "${COL.CUSTOMERS.BILLING_ADDRESS}"
+        ]) {
+          id
+          text
+        }
+      }
+    }
+  `);
+
+  const item = result.items[0];
+  if (!item) return null;
+
+  const cv = id => item.column_values.find(c => c.id === id)?.text || "";
+
+  return {
+    name: item.name,
+    accountNumber: cv(COL.CUSTOMERS.ACCOUNT_NUMBER),
+    email:         cv(COL.CUSTOMERS.EMAIL),
+    phone:         cv(COL.CUSTOMERS.PHONE),
+    address:       cv(COL.CUSTOMERS.BILLING_ADDRESS),
+  };
+}
+
 module.exports = {
   setWorkOrderExecutionStatus,
   setWorkOrderInProgress,
@@ -560,12 +599,16 @@ module.exports = {
   getLatestCustomerAccountNumberFromBoard,
   getLocationDetails,
   getWorkOrderDetails,
+  getCustomerDetails,
   getMasterCosts,
   createMasterCostItem,
   updateMasterCostItem,
   deleteMasterCostItem,
   createInvoiceItem,
   setInvoiceItemStatus,
+  updateCustomerXeroStatus,
+  updateCustomerXeroId,
+  updateCustomerBillingDetails,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
@@ -695,6 +738,7 @@ async function updateMasterCostItem(mondayItemId, updates) {
   if (updates.totalCost   !== undefined) cv[MC.TOTAL_COST] = updates.totalCost;
   if (updates.description !== undefined) cv[MC.DESCRIPTION]= { text: updates.description };
   if (updates.date        !== undefined) cv[MC.DATE]       = { date: updates.date };
+  if (updates.invoiceStatus !== undefined) cv[MC.INVOICE_STATUS]= { label: updates.invoiceStatus };
 
   if (!Object.keys(cv).length) return;
 
@@ -787,6 +831,67 @@ async function setInvoiceItemStatus(itemId, statusLabel) {
     }
   `);
 }
+/**
+ * Updates the Xero Sync Status on a Customer item.
+ * @param {string} pulseId 
+ * @param {"Synced"|"Failed"|"Pending"} statusLabel 
+ */
+async function updateCustomerXeroStatus(pulseId, statusLabel) {
+  const CUST = COL.CUSTOMERS;
+  const cv = { [CUST.XERO_SYNC_STATUS]: { label: statusLabel } };
 
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.CUSTOMERS},
+        item_id: ${pulseId},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id }
+    }
+  `);
+}
 
+/**
+ * Updates the Xero Contact ID on a Customer item.
+ * @param {string} pulseId 
+ * @param {string} xeroContactId 
+ */
+async function updateCustomerXeroId(pulseId, xeroContactId) {
+  const CUST = COL.CUSTOMERS;
+  const cv = { [CUST.XERO_CONTACT_ID]: xeroContactId };
 
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.CUSTOMERS},
+        item_id: ${pulseId},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id }
+    }
+  `);
+}
+
+/**
+ * Updates the Billing Address string and Terms on a Customer item.
+ * @param {string} pulseId 
+ * @param {string} billingAddress 
+ * @param {string} terms 
+ */
+async function updateCustomerBillingDetails(pulseId, billingAddress, terms) {
+  const CUST = COL.CUSTOMERS;
+  const cv = {};
+  if (billingAddress !== undefined) cv[CUST.BILLING_ADDRESS] = { text: billingAddress };
+  if (terms !== undefined) {
+     cv[CUST.BILLING_TERMS] = terms ? { labels: [terms] } : { ids: [] };
+  }
+
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.CUSTOMERS},
+        item_id: ${pulseId},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id }
+    }
+  `);
+}

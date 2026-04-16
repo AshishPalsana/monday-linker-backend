@@ -13,6 +13,7 @@ const authRoutes        = require("./routes/auth");
 const webhookRoutes     = require("./routes/webhooks");
 const xeroRoutes        = require("./routes/xero");
 const billingRoutes     = require("./routes/billing");
+const customerRoutes    = require("./routes/customers");
 const { errorHandler }  = require("./middleware/errorHandler");
 
 const app = express();
@@ -71,6 +72,7 @@ app.use("/api/master-costs",  masterCostRoutes);
 app.use("/api/webhooks",      webhookRoutes);
 app.use("/api/xero",          xeroRoutes);
 app.use("/api/billing",       billingRoutes);
+app.use("/api/customers",     customerRoutes);
 
 // ── 404 ────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -83,10 +85,15 @@ app.use(errorHandler);
 // ── Start ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 const { httpServer } = attachSocketIO(app);
-httpServer.listen(PORT, () => {
+const { runRecoverySweep } = require("./services/customerSyncService");
+
+httpServer.listen(PORT, async () => {
   console.log(`[server] Listening on http://localhost:${PORT}`);
   console.log(`[server] Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`[server] Socket.io attached`);
+
+  // Start-up recovery sweep for Customers
+  runRecoverySweep();
 });
 
 module.exports = app;
