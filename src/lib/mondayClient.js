@@ -618,32 +618,49 @@ module.exports = {
 async function getMasterCosts(workOrderId) {
   const MC = COL.MASTER_COSTS;
 
-  // If workOrderId provided, filter using items_page_by_column_values on the Master Costs board
+  // If workOrderId provided, we must fetch items from Master Costs board and filter in JS
+  // because board-relation columns are not supported as filters in items_page_by_column_values.
   if (workOrderId) {
     const result = await graphql(`
       query {
-        items_page_by_column_values(
-          board_id: ${BOARD.MASTER_COSTS}, 
-          columns: [{ column_id: "${MC.WORK_ORDERS_REL}", column_values: ["${workOrderId}"] }]
-        ) {
-          items {
-            id
-            name
-            created_at
-            column_values(ids: [
-              "${MC.TYPE}",
-              "${MC.QUANTITY}",
-              "${MC.RATE}",
-              "${MC.TOTAL_COST}",
-              "${MC.DESCRIPTION}",
-              "${MC.DATE}",
-              "${MC.INVOICE_STATUS}"
-            ]) { id text value }
+        boards(ids: [${BOARD.MASTER_COSTS}]) {
+          items_page(limit: 500) {
+            items {
+              id
+              name
+              created_at
+              column_values(ids: [
+                "${MC.WORK_ORDERS_REL}",
+                "${MC.TYPE}",
+                "${MC.QUANTITY}",
+                "${MC.RATE}",
+                "${MC.TOTAL_COST}",
+                "${MC.DESCRIPTION}",
+                "${MC.DATE}",
+                "${MC.INVOICE_STATUS}"
+              ]) { id text value }
+            }
           }
         }
       }
     `);
-    return result.items_page_by_column_values?.items ?? [];
+
+    const items = result.boards?.[0]?.items_page?.items ?? [];
+    
+    // Filter items that match the workOrderId in their WORK_ORDERS_REL column
+    return items.filter(item => {
+      const relCol = item.column_values.find(cv => cv.id === MC.WORK_ORDERS_REL);
+      if (!relCol?.value) return false;
+      try {
+        const parsed = JSON.parse(relCol.value);
+        const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
+        return linkedIds.some(link => 
+          String(link.linkedPulseId || link) === String(workOrderId)
+        );
+      } catch (e) {
+        return false;
+      }
+    });
   }
 
   const result = await graphql(`
