@@ -1,26 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
+const { body } = require("express-validator");
 const { combineAddress } = require("../utils/addressUtils");
 const { requireAuth } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
-const { body } = require("express-validator");
-
-router.use(requireAuth);
-
 const { syncCustomerToXero } = require("../services/customerSyncService");
-const { combineAddress } = require("../utils/addressUtils");
 const { updateCustomerBillingDetails, updateCustomerXeroStatus } = require("../lib/mondayClient");
 
 router.use(requireAuth);
 
-/**
- * Hardened Upsert:
- * 1. Validates required fields (Name, Addr1, City, Country).
- * 2. Saves to DB (Atomic versioning).
- * 3. Triggers background Xero sync if data changed or retry requested.
- */
-router.post("/upsert", 
+router.post("/upsert",
   [
     body("id").isString().notEmpty().withMessage("Monday Item ID (id) is required"),
     body("name").isString().trim().notEmpty().withMessage("Name is required"),
@@ -41,11 +31,10 @@ router.post("/upsert",
       const pulseId = String(id);
       const billingAddressStr = combineAddress(addressFields);
 
-      // 1. Fetch existing to detect changes
       const existing = await prisma.customer.findUnique({ where: { id: pulseId } });
 
-      const hasChanged = !existing || 
-        existing.name !== name || 
+      const hasChanged = !existing ||
+        existing.name !== name ||
         existing.email !== email ||
         existing.phone !== phone ||
         existing.addressLine1 !== addressFields.addressLine1 ||
@@ -55,10 +44,8 @@ router.post("/upsert",
 
       const shouldSync = hasChanged || existing?.xeroSyncStatus === "Failed";
 
-      console.log(`[api/customers] Upser pulse ${pulseId} — hasChanged=${hasChanged} shouldSync=${shouldSync}`);
+      console.log(`[api/customers] Upsert pulse ${pulseId} — hasChanged=${hasChanged} shouldSync=${shouldSync}`);
 
-      // 2. Perform DB Update (Source of Truth)
-      // Increment syncVersion if we are about to trigger a new sync
       const customer = await prisma.customer.upsert({
         where: { id: pulseId },
         update: {
@@ -69,7 +56,7 @@ router.post("/upsert",
           ...addressFields,
           billingAddress: billingAddressStr,
           xeroSyncStatus: shouldSync ? "Pending" : undefined,
-          syncVersion: shouldSync ? { increment: 1 } : undefined 
+          syncVersion: shouldSync ? { increment: 1 } : undefined
         },
         create: {
           id: pulseId,
@@ -83,13 +70,11 @@ router.post("/upsert",
         }
       });
 
-      // 3. Update Monday with business fields (Non-blocking)
       setImmediate(async () => {
         try {
           await updateCustomerBillingDetails(pulseId, billingAddressStr, billingTerms);
           if (shouldSync) {
             await updateCustomerXeroStatus(pulseId, "Pending");
-            // 4. Trigger Orchestrator
             await syncCustomerToXero(pulseId);
           }
         } catch (err) {
@@ -97,10 +82,10 @@ router.post("/upsert",
         }
       });
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         data: customer,
-        syncTriggered: shouldSync 
+        syncTriggered: shouldSync
       });
     } catch (err) {
       console.error("[api/customers] Upsert failed:", err.message);
@@ -109,22 +94,19 @@ router.post("/upsert",
   }
 );
 
-/**
- * Manual Retry endpoint
- */
 router.post("/:id/retry", async (req, res, next) => {
   const pulseId = req.params.id;
   try {
     await prisma.customer.update({
       where: { id: pulseId },
-      data: { 
+      data: {
         xeroSyncStatus: "Pending",
         syncVersion: { increment: 1 }
       }
     });
 
     setImmediate(() => syncCustomerToXero(pulseId));
-    
+
     res.json({ success: true, message: "Sync retry initiated." });
   } catch (err) {
     next(err);

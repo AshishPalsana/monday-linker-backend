@@ -9,10 +9,6 @@ const { requireBillingLock } = require("../middleware/billingLock");
 const router = express.Router();
 router.use(requireAuth);
 
-/**
- * Prepares an invoice by promoting Master Costs to Invoice Line Items.
- * Idempotent: Only promotes items that haven't been promoted yet.
- */
 router.post(
   "/work-orders/:id/prepare-invoice",
   requireAdmin,
@@ -23,16 +19,13 @@ router.post(
     try {
       const workOrderId = req.params.id;
 
-      // 1. Fetch all Master Costs for this Work Order
       const costs = await monday.getMasterCosts(workOrderId);
       if (!costs.length) {
         return res.status(400).json({ error: "No Master Costs found for this Work Order" });
       }
 
-      // 2. Fetch Global Settings for markups
       let settings = await prisma.globalSettings.findUnique({ where: { id: "default" } });
       if (!settings) {
-        // Create default if missing
         settings = await prisma.globalSettings.create({
           data: { id: "default", partsMarkup: 1.35, expenseMarkup: 1.10 }
         });
@@ -44,7 +37,6 @@ router.post(
         errors: []
       };
 
-      // 3. Promote items 1:1
       for (const cost of costs) {
         try {
           const statusVal = cost.column_values.find(c => c.id === monday.COL.MASTER_COSTS.INVOICE_STATUS)?.text;
@@ -77,9 +69,7 @@ router.post(
             itemName: cost.name
           });
 
-          // Update Master Cost status to 'Invoiced'
           await monday.updateMasterCostItem(cost.id, {
-            // We use the status column to flag it
             invoiceStatus: "Invoiced"
           });
 

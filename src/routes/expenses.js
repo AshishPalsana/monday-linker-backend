@@ -90,8 +90,7 @@ router.post(
             timeEntryMondayId: entry.mondayItemId || null,
             expenseItemName: `${type} — ${req.technician.name}`,
           });
-          
-          // Trigger sync to Master Costs board
+
           await syncExpenseToCost(expense.id);
         } catch (mondayErr) {
           console.error(
@@ -144,7 +143,6 @@ router.patch(
         },
       });
 
-      // Sync update to Master Costs
       setImmediate(() => {
         syncExpenseToCost(updated.id).catch(console.error);
       });

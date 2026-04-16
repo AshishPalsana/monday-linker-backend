@@ -25,7 +25,6 @@ router.get(
     try {
       const { date, status, technicianId } = req.query;
 
-      // Determine whose entries to fetch
       let targetTechId = req.technician.id;
       if (technicianId) {
         if (!req.technician.isAdmin) {
@@ -34,7 +33,6 @@ router.get(
         targetTechId = technicianId;
       }
 
-      // Date range filter — default to today in CST
       const { dayStart, dayEnd } = getCSTDayBounds(date ?? undefined);
 
       const entries = await prisma.timeEntry.findMany({
@@ -129,9 +127,6 @@ router.post(
     try {
       const { entryType, workOrderRef, workOrderLabel, taskCategory, taskDescription } = req.body;
 
-      // 1. Logic for Parallel Timers & Overlap
-      // We allow one active timer per type (Job, NonJob, Travel)
-      // BUT if starting a new Job while another is open, we auto-clockout the old one
       const openEntries = await prisma.timeEntry.findMany({
         where: { technicianId: req.technician.id, clockOut: null },
       });
@@ -140,24 +135,22 @@ router.post(
 
       if (sameTypeEntry) {
         if (entryType === "Job") {
-          // Auto-clockout the previous job
           console.log(`[clock-in] Auto-clockout for previous Job ${sameTypeEntry.id} as new Job ${workOrderRef} is starting`);
           const now = new Date();
           const diffMs = now - sameTypeEntry.clockIn;
           const hours = parseFloat((diffMs / 3_600_000).toFixed(2));
-          
+
           await prisma.timeEntry.update({
             where: { id: sameTypeEntry.id },
-            data: { 
-              clockOut: now, 
-              hoursWorked: hours, 
+            data: {
+              clockOut: now,
+              hoursWorked: hours,
               status: "Complete",
               narrative: `[Auto-Closed] Switched to new job ${workOrderLabel || workOrderRef}. Original session started at ${sameTypeEntry.clockIn.toISOString()}`,
               jobLocation: sameTypeEntry.jobLocation || "Not provided (Auto-closed)"
             }
           });
 
-          // Also update Monday for the old entry
           if (sameTypeEntry.mondayItemId) {
             setImmediate(() => {
               monday.updateTimeEntryItem(sameTypeEntry.mondayItemId, { clockOut: now, hoursWorked: hours });
@@ -165,7 +158,6 @@ router.post(
             });
           }
         } else {
-          // For NonJob, just block if one is already open
           return res.status(409).json({
             error: `Already clocked in to a ${entryType} entry`,
             activeEntryId: sameTypeEntry.id,
@@ -183,11 +175,11 @@ router.post(
 
       const entry = await prisma.timeEntry.create({
         data: {
-          technicianId:    req.technician.id,
+          technicianId: req.technician.id,
           entryType,
-          workOrderRef:    workOrderRef    ?? null,
-          workOrderLabel:  workOrderLabel  ?? null,
-          taskCategory:    taskCategory    ?? null,
+          workOrderRef: workOrderRef ?? null,
+          workOrderLabel: workOrderLabel ?? null,
+          taskCategory: taskCategory ?? null,
           taskDescription: taskDescription ?? null,
           clockIn,
           status: "Open",
@@ -195,9 +187,7 @@ router.post(
         include: { expenses: true },
       });
 
-      // ── Monday.com side-effects (non-blocking — each operation is independent) ─
       setImmediate(async () => {
-        // 1. For Job entries: update WO Execution Status to "In Progress" (highest priority)
         if (entryType === "Job" && workOrderRef) {
           try {
             await monday.setWorkOrderInProgress(workOrderRef);
@@ -206,19 +196,17 @@ router.post(
           }
         }
 
-        // 2. Create item on the Time Entries board
         try {
           const mondayItemId = await monday.createTimeEntryItem({
             technicianName: req.technician.name,
-            mondayUserId:   req.technician.id,
+            mondayUserId: req.technician.id,
             entryType,
-            workOrderRef:    workOrderRef ?? null,
-            workOrderLabel:  workOrderLabel ?? null,
+            workOrderRef: workOrderRef ?? null,
+            workOrderLabel: workOrderLabel ?? null,
             taskDescription: taskDescription ?? null,
             clockIn,
           });
 
-          // Store the Monday.com item ID for later update on clock-out
           await prisma.timeEntry.update({
             where: { id: entry.id },
             data: { mondayItemId },
@@ -228,16 +216,15 @@ router.post(
         }
       });
 
-      // ── Socket.io broadcast ────────────────────────────────────────────────
       emitTimeEvent("clock_in", {
-        technicianId:  req.technician.id,
+        technicianId: req.technician.id,
         technicianName: req.technician.name,
-        entryId:       entry.id,
+        entryId: entry.id,
         entryType,
-        workOrderRef:  workOrderRef ?? null,
+        workOrderRef: workOrderRef ?? null,
         workOrderLabel: workOrderLabel ?? null,
         taskDescription: taskDescription ?? null,
-        clockIn:       entry.clockIn,
+        clockIn: entry.clockIn,
       });
 
       res.status(201).json({ data: entry });
@@ -279,21 +266,16 @@ router.patch(
 
       const { narrative, jobLocation, expenses = [], markComplete = false } = req.body;
 
-      // ── Expense Validation ────────────────────────────────────────────────
-      // Requirement: Prevent clock-out if any expenses are incomplete.
-      // 1. Check existing expenses for this session
-      const existingExpenses = await prisma.expense.findMany({ 
-        where: { timeEntryId: entry.id } 
+      const existingExpenses = await prisma.expense.findMany({
+        where: { timeEntryId: entry.id }
       });
 
-      // 2. Combine with new expenses being added during clock-out
       const allExpenses = [...existingExpenses, ...expenses];
 
-      // 3. Verify all have a valid type and non-zero amount
       const incomplete = allExpenses.find(e => !e.type || !e.amount || parseFloat(e.amount) <= 0);
-      
+
       if (incomplete) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: `Incomplete expense detected (${incomplete.type || "Unknown"}). Please ensure all expenses have a valid amount before clocking out.`,
           code: "INCOMPLETE_EXPENSE"
         });
@@ -313,17 +295,16 @@ router.patch(
 
         if (expenses.length > 0) {
           const { syncExpenseToCost } = require("../services/monday/syncService");
-          
+
           for (const e of expenses) {
             const expense = await tx.expense.create({
               data: {
                 timeEntryId: entry.id,
-                type:    e.type,
-                amount:  e.amount,
+                type: e.type,
+                amount: e.amount,
                 details: e.details ?? null,
               }
             });
-            // Cost sync will happen in setImmediate after this transaction
           }
         }
 
@@ -333,12 +314,10 @@ router.patch(
         });
       });
 
-      // ── Monday.com side-effects (non-blocking) ──────────────────────────────
       setImmediate(async () => {
         try {
           const hasExpenses = expenses.length > 0;
 
-          // 1. Update the Time Entry item on Monday.com
           if (entry.mondayItemId) {
             await monday.updateTimeEntryItem(entry.mondayItemId, {
               clockOut,
@@ -350,7 +329,6 @@ router.patch(
             });
           }
 
-          // 2. If technician marked the job complete, or if we need to update status
           if (entry.entryType === "Job" && entry.workOrderRef) {
             try {
               if (markComplete) {
@@ -361,15 +339,12 @@ router.patch(
             }
           }
 
-          // 3. Sync Time Entry to Master Cost Board (Labor)
           try {
             await syncTimeEntryToCost(entry.id);
           } catch (err) {
             console.error("[clock-out] syncTimeEntryToCost error:", err.message);
           }
 
-          // 4. Create and Sync Expenses to Monday (Expenses Board & Master Costs)
-          // Refetch to get IDs for expense sync
           const fullEntry = await prisma.timeEntry.findUnique({
             where: { id: entry.id },
             include: { expenses: true }
@@ -377,21 +352,19 @@ router.patch(
 
           for (const exp of fullEntry.expenses) {
             try {
-              // 4a. Sync to Expenses board
               const expenseMondayId = await monday.createExpenseItem({
-                mondayUserId:      req.technician.id,
-                type:              exp.type,
-                amount:            exp.amount,
-                details:           exp.details ?? "",
-                workOrderId:       entry.workOrderRef || null,
+                mondayUserId: req.technician.id,
+                type: exp.type,
+                amount: exp.amount,
+                details: exp.details ?? "",
+                workOrderId: entry.workOrderRef || null,
                 timeEntryMondayId: entry.mondayItemId || null,
-                expenseItemName:   `${exp.type} — ${req.technician.name}`,
+                expenseItemName: `${exp.type} — ${req.technician.name}`,
               });
 
-              // 4b. Trigger Master Cost Sync for this expense
               const { syncExpenseToCost } = require("../services/monday/syncService");
               await syncExpenseToCost(exp.id);
-              
+
               console.log(`[clock-out] ✓ Expense (${exp.type}) synced for WO ${entry.workOrderRef}`);
             } catch (err) {
               console.error(`[clock-out] Monday.com expense sync error (${exp.type}):`, err.message);
@@ -404,16 +377,16 @@ router.patch(
       });
 
       emitTimeEvent("clock_out", {
-        technicianId:   req.technician.id,
+        technicianId: req.technician.id,
         technicianName: req.technician.name,
-        entryId:        updated.id,
-        entryType:      updated.entryType,
+        entryId: updated.id,
+        entryType: updated.entryType,
         workOrderLabel: updated.workOrderLabel ?? null,
         taskDescription: updated.taskDescription ?? null,
-        clockIn:        updated.clockIn,
-        clockOut:       updated.clockOut,
-        hoursWorked:    updated.hoursWorked,
-        status:         updated.status,
+        clockIn: updated.clockIn,
+        clockOut: updated.clockOut,
+        hoursWorked: updated.hoursWorked,
+        status: updated.status,
       });
 
       res.json({ data: updated });
