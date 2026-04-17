@@ -6,7 +6,7 @@ const xeroService = require("../services/xeroService");
 
 // ── Shared XeroClient instance (used only for OAuth flow) ──────────────────
 const xero = new XeroClient({
-  clientId:     process.env.XERO_CLIENT_ID,
+  clientId: process.env.XERO_CLIENT_ID,
   clientSecret: process.env.XERO_CLIENT_SECRET,
   redirectUris: [process.env.XERO_REDIRECT_URI],
   scopes: [
@@ -82,23 +82,23 @@ router.get("/callback", async (req, res) => {
     await prisma.integration.upsert({
       where: { provider: "XERO" },
       update: {
-        accessToken:  tokenSet.access_token,
+        accessToken: tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
-        idToken:      tokenSet.id_token || null,
-        tokenType:    tokenSet.token_type || "Bearer",
-        expiresAt:    BigInt(Date.now() + (tokenSet.expires_in || 1800) * 1000),
-        tenantId:     activeTenant.tenantId,
-        tenantName:   activeTenant.tenantName || null,
+        idToken: tokenSet.id_token || null,
+        tokenType: tokenSet.token_type || "Bearer",
+        expiresAt: BigInt(Date.now() + (tokenSet.expires_in || 1800) * 1000),
+        tenantId: activeTenant.tenantId,
+        tenantName: activeTenant.tenantName || null,
       },
       create: {
-        provider:     "XERO",
-        accessToken:  tokenSet.access_token,
+        provider: "XERO",
+        accessToken: tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
-        idToken:      tokenSet.id_token || null,
-        tokenType:    tokenSet.token_type || "Bearer",
-        expiresAt:    BigInt(Date.now() + (tokenSet.expires_in || 1800) * 1000),
-        tenantId:     activeTenant.tenantId,
-        tenantName:   activeTenant.tenantName || null,
+        idToken: tokenSet.id_token || null,
+        tokenType: tokenSet.token_type || "Bearer",
+        expiresAt: BigInt(Date.now() + (tokenSet.expires_in || 1800) * 1000),
+        tenantId: activeTenant.tenantId,
+        tenantName: activeTenant.tenantName || null,
       },
     });
 
@@ -138,10 +138,6 @@ router.post("/disconnect", async (req, res) => {
   }
 });
 
-/**
- * GET /api/xero/sync-status/:mondayItemId
- * Returns the Xero Project sync status for a given Work Order (Monday pulse ID).
- */
 router.get("/sync-status/:mondayItemId", async (req, res) => {
   const { mondayItemId } = req.params;
   try {
@@ -157,8 +153,8 @@ router.get("/sync-status/:mondayItemId", async (req, res) => {
       return res.json({
         synced: true,
         xeroProjectId: record.xeroProjectId,
-        workOrderId:   record.workOrderId,
-        xeroStatus:    record.xeroStatus,
+        workOrderId: record.workOrderId,
+        xeroStatus: record.xeroStatus,
         xeroProjectUrl: `https://go.xero.com/projects/list`,
       });
     }
@@ -200,7 +196,7 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
 
     // Retry the Xero Project creation
     const xeroProjectId = await xeroService.createXeroProject({
-      workOrderId:   record.workOrderId,
+      workOrderId: record.workOrderId,
       workOrderName: record.workOrderId, // name available in record
     });
 
@@ -220,7 +216,7 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
         where: { mondayItemId: String(mondayItemId) },
         data: { syncError: err.message },
       })
-      .catch(() => {});
+      .catch(() => { });
 
     res.status(500).json({ error: err.message });
   }
