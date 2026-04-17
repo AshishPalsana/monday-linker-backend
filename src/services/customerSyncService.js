@@ -114,6 +114,10 @@ async function syncCustomerToXero(pulseId) {
 async function runRecoverySweep() {
   console.log("[customerSyncService] Running recovery sweep for Pending records…");
   try {
+    if (!prisma.customer) {
+      console.warn("[customerSyncService] prisma.customer model is missing from generated client.");
+      return;
+    }
     const pending = await prisma.customer.findMany({
       where: { xeroSyncStatus: "Pending" }
     });

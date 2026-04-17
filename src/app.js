@@ -29,9 +29,21 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. curl, mobile, server-to-server)
+      // 1. Allow requests with no origin (e.g. curl, mobile, server-to-server)
       if (!origin) return callback(null, true);
+
+      // 2. Allow explicit origins from .env
       if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      // 3. Robustly allow Monday.com subdomains (dynamic CDN subdomains)
+      if (
+        origin.endsWith(".monday.app") ||
+        origin.endsWith(".monday.com") ||
+        /^https:\/\/.*\.monday\.(app|com)$/.test(origin)
+      ) {
+        return callback(null, true);
+      }
+
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,
