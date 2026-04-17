@@ -108,9 +108,12 @@ router.get("/callback", async (req, res) => {
       <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
         <h2>✅ Xero Connected Successfully</h2>
         <p>Organisation: <strong>${activeTenant.tenantName}</strong></p>
-        <p>You can close this window now.</p>
+        <p>This window will redirect back to the app shortly...</p>
         <script>
-          setTimeout(() => { try { window.close(); } catch(e) {} }, 2000);
+          const origin = window.location.origin.replace(':3001', ':5173');
+          setTimeout(() => { 
+            window.location.href = origin + '/#/settings/integrations?success=true';
+          }, 2000);
         </script>
       </body></html>
     `);
@@ -130,7 +133,6 @@ router.post("/disconnect", async (req, res) => {
     res.json({ success: true, message: "Xero disconnected." });
   } catch (err) {
     if (err.code === "P2025") {
-      // Record not found — already disconnected
       return res.json({ success: true, message: "Already disconnected." });
     }
     console.error("[xero] /disconnect error:", err.message);
