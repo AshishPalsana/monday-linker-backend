@@ -71,7 +71,7 @@ router.get("/connect", async (req, res) => {
  */
 router.get("/callback", async (req, res) => {
   try {
-    const tokenSet = await xero.apiCallback(req.url);
+    const tokenSet = await xero.apiCallback(req.url, process.env.XERO_REDIRECT_URI);
     await xero.updateTenants();
 
     const activeTenant = xero.tenants[0];
@@ -118,8 +118,21 @@ router.get("/callback", async (req, res) => {
       </body></html>
     `);
   } catch (err) {
-    console.error("[xero] /callback error:", err.message);
-    res.status(500).send(`<h2>Error connecting to Xero</h2><p>${err.message}</p>`);
+    // xero-node errors often put the real message in response.body.Message
+    const xeroBodyError = err.response?.body?.Message || err.response?.body?.error_description;
+    const errorMessage = xeroBodyError || err.message || "An unknown Xero error occurred.";
+
+    console.error("[xero] /callback error:", errorMessage);
+    if (err.response?.body) console.error("[xero] Error details:", JSON.stringify(err.response.body));
+
+    res.status(500).send(`
+      <div style="font-family:sans-serif;padding:40px;text-align:center;">
+        <h2 style="color:#d32f2f;">Error connecting to Xero</h2>
+        <p style="background:#f5f5f5;padding:15px;border-radius:6px;display:inline-block;">${errorMessage}</p>
+        <br/>
+        <a href="/api/xero/connect" style="color:#13b5ea;text-decoration:none;font-weight:600;">Click here to try again</a>
+      </div>
+    `);
   }
 });
 
