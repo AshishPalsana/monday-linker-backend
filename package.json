@@ -12,7 +12,8 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "db:generate": "prisma generate",
-    "build": "npm install && npx prisma generate"
+    "build": "prisma generate",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

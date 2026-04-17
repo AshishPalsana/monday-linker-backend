@@ -65,6 +65,18 @@ app.get("/health", (_req, res) => {
 });
 
 // ── Debug Route ────────────────────────────────────────
+app.get("/api/health", async (req, res) => {
+  const prisma = require("./lib/prisma");
+  res.json({
+    status: "ok",
+    cwd: process.cwd(),
+    dirname: __dirname,
+    prismaModels: Object.keys(prisma).filter(k => !k.startsWith("_")),
+    env: process.env.NODE_ENV,
+    allowedOrigins: process.env.ALLOWED_ORIGINS
+  });
+});
+
 app.get("/api/debug/counters", async (_req, res) => {
   try {
     const prisma = require("./lib/prisma");

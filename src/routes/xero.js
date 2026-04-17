@@ -221,12 +221,14 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
     console.error("[xero] /retry-sync error:", err.message);
 
     // Update DB error message
-    await prisma.workOrderSync
-      .update({
-        where: { mondayItemId: String(mondayItemId) },
-        data: { syncError: err.message },
-      })
-      .catch(() => { });
+    if (prisma.workOrderSync) {
+      await prisma.workOrderSync
+        .update({
+          where: { mondayItemId: String(mondayItemId) },
+          data: { syncError: err.message },
+        })
+        .catch(() => { });
+    }
 
     res.status(500).json({ error: err.message });
   }
