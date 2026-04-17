@@ -140,6 +140,30 @@ router.post("/disconnect", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/xero/status
+ * Check if Xero is connected and return tenant info.
+ */
+router.get("/status", async (req, res) => {
+  try {
+    const integration = await prisma.integration.findUnique({
+      where: { provider: "XERO" },
+    });
+
+    if (!integration || !integration.accessToken) {
+      return res.json({ connected: false });
+    }
+
+    res.json({
+      connected: true,
+      tenantName: integration.tenantName,
+    });
+  } catch (err) {
+    console.error("[xero] /status error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/sync-status/:mondayItemId", async (req, res) => {
   const { mondayItemId } = req.params;
   try {
