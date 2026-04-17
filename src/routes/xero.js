@@ -101,19 +101,32 @@ router.get("/callback", async (req, res) => {
       </body></html>
     `);
   } catch (err) {
-    // xero-node errors often put the real message in response.body.Message
-    const xeroBodyError = err.response?.body?.Message || err.response?.body?.error_description;
+    const xeroBodyError = err.response?.body?.Message || err.response?.body?.error || err.response?.body?.error_description;
     const errorMessage = xeroBodyError || err.message || "An unknown Xero error occurred.";
-
+    
     console.error("[xero] /callback error:", errorMessage);
-    if (err.response?.body) console.error("[xero] Error details:", JSON.stringify(err.response.body));
+    
+    // Diagnostic data for the UI
+    const debugData = {
+      message: err.message,
+      code: err.code,
+      response: err.response?.body,
+      stack: err.stack?.split("\n").slice(0, 3).join("\n"), // Just the first few lines
+      reconstructedUrl: typeof callbackUrl !== 'undefined' ? callbackUrl : 'N/A'
+    };
 
     res.status(500).send(`
-      <div style="font-family:sans-serif;padding:40px;text-align:center;">
+      <div style="font-family:sans-serif;padding:40px;text-align:center;max-width:800px;margin:auto;">
         <h2 style="color:#d32f2f;">Error connecting to Xero</h2>
         <p style="background:#f5f5f5;padding:15px;border-radius:6px;display:inline-block;">${errorMessage}</p>
-        <br/>
-        <a href="/api/xero/connect" style="color:#13b5ea;text-decoration:none;font-weight:600;">Click here to try again</a>
+        
+        <div style="text-align:left; background:#1e1e1e; color:#d4d4d4; padding:20px; border-radius:8px; margin-top:20px; font-family:monospace; font-size:12px; overflow:auto;">
+          <strong style="color:#ff8a80;">Technical Diagnostics:</strong>
+          <pre>${JSON.stringify(debugData, null, 2)}</pre>
+        </div>
+
+        <br/><br/>
+        <a href="/api/xero/connect" style="color:#13b5ea;text-decoration:none;font-weight:600;font-size:18px;">Click here to try again</a>
       </div>
     `);
   }
