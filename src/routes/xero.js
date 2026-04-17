@@ -58,7 +58,7 @@ router.get("/status", async (req, res) => {
 router.get("/connect", async (req, res) => {
   try {
     const consentUrl = await xero.buildConsentUrl();
-    res.json({ url: consentUrl });
+    res.redirect(consentUrl);
   } catch (err) {
     console.error("[xero] /connect error:", err.message);
     res.status(500).json({ error: err.message });
