@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
-const { buildXeroClient, XERO_SCOPES } = require("../services/xeroService");
+const { buildXeroClient, XERO_SCOPES, createXeroProject } = require("../services/xeroService");
 
 
 /**
@@ -97,55 +97,31 @@ router.get("/callback", async (req, res) => {
     });
 
     console.log(`[xero] ✓ Connected — tenant: ${activeTenant.tenantName}`);
-
+    const origin = req.headers.origin || (process.env.NODE_ENV === 'production' ? 'https://app.yourdomain.com' : 'http://localhost:5173');
     res.send(`
-      <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
-        <h2>✅ Xero Connected Successfully</h2>
-        <p>Organisation: <strong>${activeTenant.tenantName}</strong></p>
-        <p>This window will redirect back to the app shortly...</p>
-        <script>
-          const origin = window.location.origin.replace(':3001', ':5173');
-          setTimeout(() => { 
-            window.location.href = origin + '/#/settings/integrations?success=true';
-          }, 2000);
-        </script>
-      </body></html>
+      <html>
+        <head>
+          <meta http-equiv="refresh" content="3;url=${origin}/#/settings/integrations?success=true">
+        </head>
+        <body style="font-family:sans-serif;padding:40px;text-align:center;">
+          <h2 style="color:#2e7d32;">✅ Xero Connected Successfully</h2>
+          <p>Organisation: <strong>${activeTenant.tenantName}</strong></p>
+          <p>Redirecting back to the app in 3 seconds...</p>
+          <br/>
+          <a href="${origin}/#/settings/integrations?success=true" style="color:#13b5ea;text-decoration:none;font-weight:600;">Click here if you are not redirected automatically</a>
+        </body>
+      </html>
     `);
   } catch (err) {
     const xeroBodyError = err.response?.body?.Message || err.response?.body?.error || err.response?.body?.error_description;
     const errorMessage = xeroBodyError || err.message || "An unknown Xero error occurred.";
     
     console.error("[xero] /callback error:", errorMessage);
-    
-    // Mask logic for verification
-    const mask = (str) => {
-      if (!str) return "MISSING";
-      return str.substring(0, 3) + "..." + str.substring(str.length - 3);
-    };
-
-    const debugData = {
-      errorMessage,
-      xeroStatusCode: err.response?.statusCode,
-      envVerification: {
-        XERO_CLIENT_ID: mask(process.env.XERO_CLIENT_ID),
-        XERO_REDIRECT_URI: process.env.XERO_REDIRECT_URI
-      },
-      callbackUrl
-    };
 
     res.status(500).send(`
-      <div style="font-family:sans-serif;padding:40px;text-align:center;max-width:900px;margin:auto;">
+      <div style="font-family:sans-serif;padding:40px;text-align:center;max-width:800px;margin:auto;">
         <h2 style="color:#d32f2f;">Error connecting to Xero</h2>
         <p style="background:#f5f5f5;padding:15px;border-radius:6px;display:inline-block;">${errorMessage}</p>
-        
-        <div style="text-align:left; background:#1e1e1e; color:#d4d4d4; padding:20px; border-radius:8px; margin-top:20px; font-family:monospace; font-size:12px; overflow:auto; border: 1px solid #333;">
-          <strong style="color:#ff8a80;">Diagnostics:</strong>
-          <pre>${JSON.stringify(debugData, null, 2)}</pre>
-          <hr style="border:0; border-top:1px solid #333; margin:15px 0;">
-          <strong>Error Stack:</strong>
-          <pre>${err.stack?.split("\n").slice(0, 5).join("\n")}</pre>
-        </div>
-
         <br/><br/>
         <a href="/api/xero/connect" style="color:#13b5ea;text-decoration:none;font-weight:600;font-size:18px;">Click here to try again</a>
       </div>
@@ -252,7 +228,7 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
     }
 
     // Retry the Xero Project creation
-    const xeroProjectId = await xeroService.createXeroProject({
+    const xeroProjectId = await createXeroProject({
       workOrderId: record.workOrderId,
       workOrderName: record.workOrderId, // name available in record
     });
