@@ -71,7 +71,10 @@ router.get("/connect", async (req, res) => {
  */
 router.get("/callback", async (req, res) => {
   try {
-    const tokenSet = await xero.apiCallback(req.url, process.env.XERO_REDIRECT_URI);
+    const queryString = req.url.split('?')[1] || "";
+    const callbackUrl = `${process.env.XERO_REDIRECT_URI}?${queryString}`;
+
+    const tokenSet = await xero.apiCallback(callbackUrl);
     await xero.updateTenants();
 
     const activeTenant = xero.tenants[0];
