@@ -13,7 +13,7 @@ const xero = new XeroClient({
     "openid",
     "profile",
     "email",
-    "accounting.transactions",
+    "accounting.invoices", // Granular scope (2026 update)
     "accounting.contacts",
     "projects",
     "offline_access",

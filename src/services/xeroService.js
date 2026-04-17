@@ -20,7 +20,7 @@ const XERO_SCOPES = [
   "openid",
   "profile",
   "email",
-  "accounting.transactions",
+  "accounting.invoices",   // Granular scope (2026 update)
   "accounting.contacts",
   "projects",           // Required for Xero Projects API
   "offline_access",     // Required for refresh_token grant
