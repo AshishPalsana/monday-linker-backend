@@ -20,10 +20,10 @@ const XERO_SCOPES = [
   "openid",
   "profile",
   "email",
-  "accounting.invoices",   // Granular scope (2026 update)
-  "accounting.contacts",
-  "projects",           // Required for Xero Projects API
-  "offline_access",     // Required for refresh_token grant
+  "accounting.transactions", // Broad scope (required for tenant discovery)
+  "accounting.settings",     // Broad scope
+  "projects",
+  "offline_access",
 ];
 
 // Refresh the token if it expires within the next 5 minutes

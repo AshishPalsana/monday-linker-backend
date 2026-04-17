@@ -112,12 +112,10 @@ router.get("/callback", async (req, res) => {
       </body></html>
     `);
   } catch (err) {
-    // Collect ALL properties from the error object (including hidden ones)
-    const errObj = {};
-    Object.getOwnPropertyNames(err).forEach(key => errObj[key] = err[key]);
-    
     const xeroBodyError = err.response?.body?.Message || err.response?.body?.error || err.response?.body?.error_description;
     const errorMessage = xeroBodyError || err.message || "An unknown Xero error occurred.";
+    
+    console.error("[xero] /callback error:", errorMessage);
     
     // Mask logic for verification
     const mask = (str) => {
@@ -127,25 +125,25 @@ router.get("/callback", async (req, res) => {
 
     const debugData = {
       errorMessage,
-      errorDetails: errObj,
+      xeroStatusCode: err.response?.statusCode,
       envVerification: {
         XERO_CLIENT_ID: mask(process.env.XERO_CLIENT_ID),
-        XERO_CLIENT_SECRET: mask(process.env.XERO_CLIENT_SECRET),
         XERO_REDIRECT_URI: process.env.XERO_REDIRECT_URI
       },
       callbackUrl
     };
-
-    console.error("[xero] /callback error:", errorMessage);
 
     res.status(500).send(`
       <div style="font-family:sans-serif;padding:40px;text-align:center;max-width:900px;margin:auto;">
         <h2 style="color:#d32f2f;">Error connecting to Xero</h2>
         <p style="background:#f5f5f5;padding:15px;border-radius:6px;display:inline-block;">${errorMessage}</p>
         
-        <div style="text-align:left; background:#1e1e1e; color:#d4d4d4; padding:20px; border-radius:8px; margin-top:20px; font-family:monospace; font-size:12px; overflow:auto; border: 2px solid #ff5252;">
-          <strong style="color:#ff8a80;">TECHNICAL DIAGNOSTICS:</strong>
+        <div style="text-align:left; background:#1e1e1e; color:#d4d4d4; padding:20px; border-radius:8px; margin-top:20px; font-family:monospace; font-size:12px; overflow:auto; border: 1px solid #333;">
+          <strong style="color:#ff8a80;">Diagnostics:</strong>
           <pre>${JSON.stringify(debugData, null, 2)}</pre>
+          <hr style="border:0; border-top:1px solid #333; margin:15px 0;">
+          <strong>Error Stack:</strong>
+          <pre>${err.stack?.split("\n").slice(0, 5).join("\n")}</pre>
         </div>
 
         <br/><br/>
