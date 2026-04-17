@@ -226,9 +226,10 @@ async function createTimeEntryItem({
   // Assign technician separately — people column IDs can differ from auth user IDs,
   // so we isolate this to avoid failing the whole item creation
   if (mondayUserId) {
+    console.log(`[mondayClient] Assigning technician — rawId="${mondayUserId}" type=${typeof mondayUserId}`);
     const peopleCv = {
       [COL.TIME_ENTRIES.TECHNICIANS]: {
-        personsAndTeams: [{ id: parseInt(mondayUserId, 10), kind: "person" }],
+        personsAndTeams: [{ id: String(mondayUserId), kind: "person" }],
       },
     };
     await graphql(`
@@ -240,7 +241,7 @@ async function createTimeEntryItem({
         ) { id }
       }
     `).catch((err) => {
-      console.warn("[createTimeEntryItem] Could not assign technician to people column:", err.message);
+      console.warn(`[mondayClient] Could not assign technician ${mondayUserId} to people column:`, err.message);
     });
   }
 
@@ -369,7 +370,7 @@ async function createExpenseItem({
 
   if (mondayUserId) {
     cv[COL.EXPENSES.TECHNICIAN] = {
-      personsAndTeams: [{ id: parseInt(mondayUserId, 10), kind: "person" }],
+      personsAndTeams: [{ id: String(mondayUserId), kind: "person" }],
     };
   }
 
