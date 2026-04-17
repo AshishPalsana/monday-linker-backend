@@ -20,8 +20,9 @@ const XERO_SCOPES = [
   "openid",
   "profile",
   "email",
-  "accounting.transactions", // Broad scope (required for tenant discovery)
-  "accounting.settings",     // Broad scope
+  "accounting.invoices",   // Granular
+  "accounting.contacts",   // Granular
+  "accounting.settings.read", // Required for organization discovery
   "projects",
   "offline_access",
 ];
