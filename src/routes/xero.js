@@ -33,10 +33,19 @@ router.get("/status", async (req, res) => {
  * GET /api/xero/connect
  * Generate the Xero OAuth2 consent URL.
  */
+/**
+ * GET /api/xero/connect
+ * Generate the Xero OAuth2 consent URL and redirect.
+ */
 router.get("/connect", async (req, res) => {
   try {
     const xero = buildXeroClient();
-    const consentUrl = await xero.buildConsentUrl();
+    
+    // In a stateless environment like Render, we use a deterministic state 
+    // to ensure the fresh instance in /callback can validate the handshake.
+    const state = Buffer.from(process.env.XERO_CLIENT_ID || "xero").toString('base64').substring(0, 16);
+    const consentUrl = await xero.buildConsentUrl(state);
+    
     res.redirect(consentUrl);
   } catch (err) {
     console.error("[xero] /connect error:", err.message);
@@ -46,10 +55,11 @@ router.get("/connect", async (req, res) => {
 
 
 router.get("/callback", async (req, res) => {
+  let callbackUrl = "N/A";
   try {
-    // Reconstruct the full callback URL manually to ensure it uses HTTPS and matches the registered Redirect URI.
+    // Reconstruct the full callback URL manually to ensure it uses HTTPS and matches the registers Redirect URI.
     const queryString = req.url.split('?')[1] || "";
-    const callbackUrl = `${process.env.XERO_REDIRECT_URI}?${queryString}`;
+    callbackUrl = `${process.env.XERO_REDIRECT_URI}?${queryString}`;
     
     console.log(`[xero] processing callback for: ${callbackUrl}`);
 
@@ -111,8 +121,8 @@ router.get("/callback", async (req, res) => {
       message: err.message,
       code: err.code,
       response: err.response?.body,
-      stack: err.stack?.split("\n").slice(0, 3).join("\n"), // Just the first few lines
-      reconstructedUrl: typeof callbackUrl !== 'undefined' ? callbackUrl : 'N/A'
+      stack: err.stack,
+      callbackUrl
     };
 
     res.status(500).send(`
