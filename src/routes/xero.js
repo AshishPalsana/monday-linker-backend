@@ -141,6 +141,11 @@ router.post("/disconnect", async (req, res) => {
 router.get("/sync-status/:mondayItemId", async (req, res) => {
   const { mondayItemId } = req.params;
   try {
+    if (!prisma.workOrderSync) {
+      console.error("[xero] prisma.workOrderSync model is missing from generated client.");
+      return res.status(500).json({ error: "Database client misconfigured (workOrderSync missing)" });
+    }
+
     const record = await prisma.workOrderSync.findUnique({
       where: { mondayItemId: String(mondayItemId) },
     });
@@ -199,6 +204,11 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
       workOrderId: record.workOrderId,
       workOrderName: record.workOrderId, // name available in record
     });
+
+    if (!prisma.workOrderSync) {
+      console.error("[xero] /retry-sync error: prisma.workOrderSync model is missing from generated client.");
+      return res.status(500).json({ error: "Database client misconfigured (workOrderSync missing)" });
+    }
 
     await prisma.workOrderSync.update({
       where: { mondayItemId: String(mondayItemId) },
