@@ -104,6 +104,17 @@ httpServer.listen(PORT, async () => {
   console.log(`[server] Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`[server] Socket.io attached`);
 
+  // Verify DB connection
+  const prisma = require("./lib/prisma");
+  try {
+    await prisma.$connect();
+    console.log("[server] ✓ Database connected");
+  } catch (err) {
+    console.error("[server] ✗ Database connection failed:", err.message);
+    // On Render, we might want to exit to trigger a restart, 
+    // but for now, we'll let it stay up so the health check can return a 500.
+  }
+
   // Start-up recovery sweep for Customers
   runRecoverySweep();
 });

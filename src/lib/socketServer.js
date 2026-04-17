@@ -23,7 +23,14 @@ function attachSocketIO(app) {
 
   io = new Server(httpServer, {
     cors: {
-      origin: allowedOrigins.length ? allowedOrigins : "*",
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        if (origin.endsWith(".monday.app") || origin.endsWith(".monday.com")) {
+          return callback(null, true);
+        }
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      },
       methods: ["GET", "POST"],
       credentials: true,
     },
