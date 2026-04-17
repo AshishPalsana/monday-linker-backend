@@ -1,28 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const { XeroClient } = require("xero-node");
 const prisma = require("../lib/prisma");
-const xeroService = require("../services/xeroService");
+const { buildXeroClient, XERO_SCOPES } = require("../services/xeroService");
 
-// ── Shared XeroClient instance (used only for OAuth flow) ──────────────────
-const xero = new XeroClient({
-  clientId: process.env.XERO_CLIENT_ID,
-  clientSecret: process.env.XERO_CLIENT_SECRET,
-  redirectUris: [process.env.XERO_REDIRECT_URI],
-  scopes: [
-    "openid",
-    "profile",
-    "email",
-    "accounting.invoices", // Granular scope (2026 update)
-    "accounting.contacts",
-    "projects",
-    "offline_access",
-  ],
-});
 
 /**
  * GET /api/xero/status
- * Check if the Xero integration is connected and the token is still valid.
+ * Check if the Xero integration is connected and return tenant info.
  */
 router.get("/status", async (req, res) => {
   try {
@@ -34,16 +18,9 @@ router.get("/status", async (req, res) => {
       return res.json({ connected: false });
     }
 
-    const now = Date.now();
-    const expiresAt = Number(integration.expiresAt);
-    const isExpired = now >= expiresAt;
-    const needsRefresh = !isExpired && now >= expiresAt - 5 * 60 * 1000; // within 5 min
-
     res.json({
-      connected: !isExpired,
-      needsRefresh,
-      tenantName: integration.tenantName || null,
-      lastSync: integration.updatedAt,
+      connected: true,
+      tenantName: integration.tenantName || "Connected",
     });
   } catch (err) {
     console.error("[xero] /status error:", err.message);
@@ -51,12 +28,14 @@ router.get("/status", async (req, res) => {
   }
 });
 
+
 /**
  * GET /api/xero/connect
  * Generate the Xero OAuth2 consent URL.
  */
 router.get("/connect", async (req, res) => {
   try {
+    const xero = buildXeroClient();
     const consentUrl = await xero.buildConsentUrl();
     res.redirect(consentUrl);
   } catch (err) {
@@ -65,15 +44,16 @@ router.get("/connect", async (req, res) => {
   }
 });
 
-/**
- * GET /api/xero/callback
- * Handle the OAuth2 callback from Xero. Stores tokens in DB.
- */
+
 router.get("/callback", async (req, res) => {
   try {
+    // Reconstruct the full callback URL manually to ensure it uses HTTPS and matches the registered Redirect URI.
     const queryString = req.url.split('?')[1] || "";
     const callbackUrl = `${process.env.XERO_REDIRECT_URI}?${queryString}`;
+    
+    console.log(`[xero] processing callback for: ${callbackUrl}`);
 
+    const xero = buildXeroClient();
     const tokenSet = await xero.apiCallback(callbackUrl);
     await xero.updateTenants();
 
@@ -156,29 +136,7 @@ router.post("/disconnect", async (req, res) => {
   }
 });
 
-/**
- * GET /api/xero/status
- * Check if Xero is connected and return tenant info.
- */
-router.get("/status", async (req, res) => {
-  try {
-    const integration = await prisma.integration.findUnique({
-      where: { provider: "XERO" },
-    });
 
-    if (!integration || !integration.accessToken) {
-      return res.json({ connected: false });
-    }
-
-    res.json({
-      connected: true,
-      tenantName: integration.tenantName,
-    });
-  } catch (err) {
-    console.error("[xero] /status error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 router.get("/sync-status/:mondayItemId", async (req, res) => {
   const { mondayItemId } = req.params;

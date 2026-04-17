@@ -336,5 +336,7 @@ module.exports = {
   createXeroProject,
   updateXeroProjectStatus,
   createXeroContact,
-  getAuthenticatedClient, // exported for advanced use (e.g., future billing routes)
+  getAuthenticatedClient,
+  XERO_SCOPES,
+  buildXeroClient,
 };
