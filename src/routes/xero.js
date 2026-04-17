@@ -41,8 +41,7 @@ router.get("/connect", async (req, res) => {
   try {
     const xero = buildXeroClient();
     
-    // In a stateless environment like Render, we use a deterministic state 
-    // to ensure the fresh instance in /callback can validate the handshake.
+    // Stable state based on ID to ensure verification succeeds in stateless mode.
     const state = Buffer.from(process.env.XERO_CLIENT_ID || "xero").toString('base64').substring(0, 16);
     const consentUrl = await xero.buildConsentUrl(state);
     
@@ -53,11 +52,13 @@ router.get("/connect", async (req, res) => {
   }
 });
 
-
+/**
+ * GET /api/xero/callback
+ * Handle the OAuth2 callback from Xero.
+ */
 router.get("/callback", async (req, res) => {
   let callbackUrl = "N/A";
   try {
-    // Reconstruct the full callback URL manually to ensure it uses HTTPS and matches the registers Redirect URI.
     const queryString = req.url.split('?')[1] || "";
     callbackUrl = `${process.env.XERO_REDIRECT_URI}?${queryString}`;
     
@@ -95,7 +96,7 @@ router.get("/callback", async (req, res) => {
       },
     });
 
-    console.log(`[xero] ✓ Connected — tenant: ${activeTenant.tenantName} (${activeTenant.tenantId})`);
+    console.log(`[xero] ✓ Connected — tenant: ${activeTenant.tenantName}`);
 
     res.send(`
       <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
@@ -111,27 +112,39 @@ router.get("/callback", async (req, res) => {
       </body></html>
     `);
   } catch (err) {
+    // Collect ALL properties from the error object (including hidden ones)
+    const errObj = {};
+    Object.getOwnPropertyNames(err).forEach(key => errObj[key] = err[key]);
+    
     const xeroBodyError = err.response?.body?.Message || err.response?.body?.error || err.response?.body?.error_description;
     const errorMessage = xeroBodyError || err.message || "An unknown Xero error occurred.";
     
-    console.error("[xero] /callback error:", errorMessage);
-    
-    // Diagnostic data for the UI
+    // Mask logic for verification
+    const mask = (str) => {
+      if (!str) return "MISSING";
+      return str.substring(0, 3) + "..." + str.substring(str.length - 3);
+    };
+
     const debugData = {
-      message: err.message,
-      code: err.code,
-      response: err.response?.body,
-      stack: err.stack,
+      errorMessage,
+      errorDetails: errObj,
+      envVerification: {
+        XERO_CLIENT_ID: mask(process.env.XERO_CLIENT_ID),
+        XERO_CLIENT_SECRET: mask(process.env.XERO_CLIENT_SECRET),
+        XERO_REDIRECT_URI: process.env.XERO_REDIRECT_URI
+      },
       callbackUrl
     };
 
+    console.error("[xero] /callback error:", errorMessage);
+
     res.status(500).send(`
-      <div style="font-family:sans-serif;padding:40px;text-align:center;max-width:800px;margin:auto;">
+      <div style="font-family:sans-serif;padding:40px;text-align:center;max-width:900px;margin:auto;">
         <h2 style="color:#d32f2f;">Error connecting to Xero</h2>
         <p style="background:#f5f5f5;padding:15px;border-radius:6px;display:inline-block;">${errorMessage}</p>
         
-        <div style="text-align:left; background:#1e1e1e; color:#d4d4d4; padding:20px; border-radius:8px; margin-top:20px; font-family:monospace; font-size:12px; overflow:auto;">
-          <strong style="color:#ff8a80;">Technical Diagnostics:</strong>
+        <div style="text-align:left; background:#1e1e1e; color:#d4d4d4; padding:20px; border-radius:8px; margin-top:20px; font-family:monospace; font-size:12px; overflow:auto; border: 2px solid #ff5252;">
+          <strong style="color:#ff8a80;">TECHNICAL DIAGNOSTICS:</strong>
           <pre>${JSON.stringify(debugData, null, 2)}</pre>
         </div>
 
