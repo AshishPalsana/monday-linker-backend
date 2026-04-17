@@ -53,6 +53,12 @@ router.post("/monday/item-created", async (req, res, next) => {
         const workOrderName = wo?.name || newWorkOrderId;
 
         try {
+          await prisma.workOrder.upsert({
+            where: { id: String(pulseId) },
+            update: { workOrderId: newWorkOrderId },
+            create: { id: String(pulseId), workOrderId: newWorkOrderId },
+          });
+
           console.log(`[webhook] Xero: Creating project for ${newWorkOrderId}…`);
           const xeroProjectId = await xeroService.createXeroProject({
             workOrderId: newWorkOrderId,
@@ -110,7 +116,7 @@ router.post("/monday/item-created", async (req, res, next) => {
         try {
           const { getCustomerDetails } = require("../lib/mondayClient");
           const cust = await getCustomerDetails(pulseId);
-          
+
           if (cust) {
             // Check if we have structured data in our DB (Source of Truth)
             const structured = await prisma.customer.findUnique({
@@ -118,24 +124,24 @@ router.post("/monday/item-created", async (req, res, next) => {
             });
 
             console.log(`[webhook] Xero: Syncing customer "${cust.name}" (${newAccountNumber})…`);
-            
+
             await xeroService.createXeroContact({
-              name:          cust.name,
-              email:         cust.email,
-              phone:         cust.phone,
+              name: cust.name,
+              email: cust.email,
+              phone: cust.phone,
               // Structured fields from DB (if available)
-              addressLine1:  structured?.addressLine1,
-              addressLine2:  structured?.addressLine2,
-              city:          structured?.city,
-              state:         structured?.state,
-              zip:           structured?.zip,
-              country:       structured?.country,
+              addressLine1: structured?.addressLine1,
+              addressLine2: structured?.addressLine2,
+              city: structured?.city,
+              state: structured?.state,
+              zip: structured?.zip,
+              country: structured?.country,
               // Fallback to Monday's combined string
-              address:       structured ? undefined : cust.address, 
+              address: structured ? undefined : cust.address,
               accountNumber: newAccountNumber,
             });
             console.log(`[webhook] ✓ Xero Contact synced for customer ${pulseId}`);
-            
+
             // Link back Xero ID if created
             // TODO: Update pulse with xeroContactId if returned
           }
