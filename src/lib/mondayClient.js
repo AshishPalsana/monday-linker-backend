@@ -845,7 +845,7 @@ async function setInvoiceItemStatus(itemId, statusLabel) {
 /**
  * Updates the Xero Sync Status on a Customer item.
  * @param {string} pulseId 
- * @param {"Synced"|"Failed"|"Pending"} statusLabel 
+ * @param {"Synced"|"Error"|"Not Synced"} statusLabel 
  */
 async function updateCustomerXeroStatus(pulseId, statusLabel) {
   const CUST = COL.CUSTOMERS;

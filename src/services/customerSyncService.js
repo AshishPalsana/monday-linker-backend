@@ -101,7 +101,7 @@ async function syncCustomerToXero(pulseId) {
 
     // Update Monday status
     try {
-      await updateCustomerXeroStatus(pulseId, "Failed");
+      await updateCustomerXeroStatus(pulseId, "Error");
     } catch (monErr) {
       console.error(`[customerSyncService] Failed to update Monday error status for ${pulseId}`);
     }
