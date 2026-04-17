@@ -183,7 +183,7 @@ async function createXeroProject({ workOrderId, workOrderName, deadlineDays = DE
 
   const deadlineUtc = new Date(
     Date.now() + deadlineDays * 24 * 60 * 60 * 1000
-  ).toISOString();
+  );
 
   console.log(`[xeroService] Creating Xero Project: "${projectName}" deadlineUtc=${deadlineUtc}`);
 
@@ -212,31 +212,6 @@ async function createXeroProject({ workOrderId, workOrderName, deadlineDays = DE
   return xeroProjectId;
 }
 
-/**
- * Creates or updates a Contact in Xero.
- *
- * @param {object} params
- * @param {string} params.name           - Customer Name
- * @param {string} [params.email]        - Email
- * @param {string} [params.phone]        - Phone
- * @param {string} [params.addressLine1] - Structured Line 1
- * @param {string} [params.addressLine2] - Structured Line 2
- * @param {string} [params.city]         - City
- * @param {string} [params.state]        - State/Region
- * @param {string} [params.zip]          - ZIP Code
- * @param {string} [params.country]      - Country
- * @param {string} [params.address]      - Fallback combined address
- * @param {string} [params.accountNumber]- Monday Customer Account Number (e.g. CUST-1045)
- *
- * @returns {string} xeroContactId (UUID)
- */
-/**
- * Creates or updates a Contact in Xero.
- * Hardened with:
- * - Idempotency: Uses xeroContactId to update instead of create.
- * - Recovery: If contact is missing (404), it clears the ID and creates a new one.
- * - Timeout: Aborts after 10s.
- */
 async function createXeroContact({
   name,
   email,
