@@ -146,12 +146,30 @@ router.get("/sync-status/:mondayItemId", async (req, res) => {
       return res.status(500).json({ error: "Database client misconfigured (workOrderSync missing)" });
     }
 
-    const record = await prisma.workOrderSync.findUnique({
+    let record = await prisma.workOrderSync.findUnique({
       where: { mondayItemId: String(mondayItemId) },
     });
 
     if (!record) {
-      return res.json({ synced: false, pending: true, message: "Sync record not found." });
+      console.log(`[xero] Sync record not found for ${mondayItemId}. Initializing...`);
+      // We don't have the WO-ID yet, but we can initialize a skeleton record
+      // The user will be able to 'Retry sync' which will then fetch details
+      try {
+        const { getWorkOrderDetails } = require("../lib/mondayClient");
+        const wo = await getWorkOrderDetails(mondayItemId);
+        const workOrderId = wo?.workOrderId || "WO-PENDING";
+
+        record = await prisma.workOrderSync.create({
+          data: {
+            mondayItemId: String(mondayItemId),
+            workOrderId: workOrderId,
+            xeroStatus: "INPROGRESS",
+          }
+        });
+      } catch (err) {
+        console.warn(`[xero] Could not auto-initialize sync record: ${err.message}`);
+        return res.json({ synced: false, pending: true, message: "Sync record not found and could not be initialized." });
+      }
     }
 
     if (record.xeroProjectId) {
