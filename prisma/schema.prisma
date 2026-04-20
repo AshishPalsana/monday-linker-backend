@@ -193,6 +193,20 @@ model WorkOrderSync {
 }
 
 // ─────────────────────────────────────────────
+// LocationSync — tracks Monday Location → CompanyCam Project mapping
+// ─────────────────────────────────────────────
+model LocationSync {
+  id                  String   @id @default(cuid())
+  mondayItemId        String   @unique    // Monday.com pulse ID (string)
+  companyCamProjectId String?  @unique    // CompanyCam Project ID (UUID)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("location_syncs")
+}
+
+// ─────────────────────────────────────────────
 // Enums
 // ─────────────────────────────────────────────
 enum EntryType {

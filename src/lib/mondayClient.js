@@ -553,6 +553,46 @@ async function getWorkOrderDetails(itemId) {
 }
 
 /**
+ * Fetches all locations for bulk sync.
+ */
+async function getAllLocations() {
+  const result = await graphql(`
+    query {
+      boards(ids: [${BOARD.LOCATIONS}]) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "text_mm0r64n", 
+              "text_mm0rv9zr", 
+              "dropdown_mm0r9ajj", 
+              "text_mm0rrexv"
+            ]) {
+              id
+              text
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  const items = result.boards[0]?.items_page?.items || [];
+  return items.map(item => {
+    const cv = id => item.column_values.find(c => c.id === id)?.text || "";
+    return {
+      id: item.id,
+      name: item.name,
+      streetAddress: cv("text_mm0r64n"),
+      city: cv("text_mm0rv9zr"),
+      state: cv("dropdown_mm0r9ajj"),
+      zip: cv("text_mm0rrexv")
+    };
+  });
+}
+
+/**
  * Fetches details for a Customer item.
  */
 async function getCustomerDetails(itemId) {
@@ -598,9 +638,10 @@ module.exports = {
   updateCustomerAccountNumber,
   getLatestWorkOrderIdFromBoard,
   getLatestCustomerAccountNumberFromBoard,
-  getLocationDetails,
   getWorkOrderDetails,
+  getLocationDetails,
   getCustomerDetails,
+  getAllLocations,
   getMasterCosts,
   createMasterCostItem,
   updateMasterCostItem,

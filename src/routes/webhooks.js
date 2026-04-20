@@ -95,6 +95,20 @@ router.post("/monday/item-created", async (req, res, next) => {
         try {
           if (wo && wo.locationId) {
             console.log(`[webhook] CompanyCam: Triggering report for WO ${newWorkOrderId} at location ${wo.locationId}`);
+            
+            // Find the mapped CompanyCam Project ID
+            const mapping = await prisma.locationSync.findUnique({
+              where: { mondayItemId: String(wo.locationId) }
+            });
+
+            if (mapping && mapping.companyCamProjectId) {
+              await companyCam.createProjectReport(mapping.companyCamProjectId, {
+                title: newWorkOrderId
+              });
+              console.log(`[webhook] ✓ CompanyCam report created for ${newWorkOrderId}`);
+            } else {
+              console.warn(`[webhook] CompanyCam: No project mapping found for location ${wo.locationId}. Skipping report.`);
+            }
           }
         } catch (err) {
           console.error("[webhook] CompanyCam report sync error:", err.message);
@@ -159,13 +173,25 @@ router.post("/monday/item-created", async (req, res, next) => {
         try {
           const loc = await getLocationDetails(pulseId);
           if (loc) {
-            await companyCam.createProject({
+            const ccProject = await companyCam.createProject({
               name: loc.name,
               address: loc.streetAddress,
               city: loc.city,
               state: loc.state,
               zip: loc.zip
             });
+
+            if (ccProject && ccProject.id) {
+              await prisma.locationSync.upsert({
+                where: { mondayItemId: String(pulseId) },
+                update: { companyCamProjectId: String(ccProject.id) },
+                create: {
+                  mondayItemId: String(pulseId),
+                  companyCamProjectId: String(ccProject.id)
+                }
+              });
+              console.log(`[webhook] ✓ CompanyCam Project created and mapped: ${ccProject.id}`);
+            }
           }
         } catch (err) {
           console.error("[webhook] CompanyCam location sync error:", err.message);

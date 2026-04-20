@@ -25,42 +25,46 @@ async function createProject({ name, address, city, state, zip }) {
   if (!client) return null;
 
   try {
-    const fullAddress = `${address}, ${city}, ${state} ${zip}`;
     const response = await client.post("/projects", {
       name,
       address: {
-        street_address_1: address,
-        city,
-        state,
-        postal_code: zip,
+        street_address_1: address || undefined,
+        city: city || undefined,
+        state: state || undefined,
+        postal_code: zip || undefined,
       }
     });
     console.log(`[companyCamService] Created project: ${response.data.id}`);
     return response.data;
   } catch (err) {
-    console.error("[companyCamService] Error creating project:", err.response?.data || err.message);
-    throw err;
+    const errorBody = err.response?.data;
+    console.error("[companyCamService] Error creating project:", errorBody || err.message);
+    throw new Error(errorBody?.errors?.[0]?.message || err.message);
   }
 }
 
 /**
- * Creates a Report (or checklist/document) under a project
+ * Creates a blank Report under a project
  */
-async function createProjectReport(projectId, { title, description }) {
+async function createProjectReport(projectId, { title }) {
   const client = getClient();
   if (!client) return null;
 
   try {
-    // Note: CompanyCam might use different endpoints for "reports" vs "checklists"
-    // Assuming a general "project note" or similar if the report API is specific
     console.log(`[companyCamService] Creating report "${title}" for project ${projectId}...`);
-    // Placeholder for actual report creation endpoint
-    // const res = await client.post(`/projects/${projectId}/reports`, { title, description });
-    // return res.data;
-    return { id: "mock-report-id", title };
+    
+    // Per CC API: POST /reports requires project_id and title
+    const response = await client.post(`/reports`, {
+      project_id: projectId,
+      title: title
+    });
+
+    console.log(`[companyCamService] ✓ Report created: ${response.data.id}`);
+    return response.data;
   } catch (err) {
-    console.error("[companyCamService] Error creating report:", err.response?.data || err.message);
-    throw err;
+    const errorBody = err.response?.data;
+    console.error("[companyCamService] Error creating report:", errorBody || err.message);
+    throw new Error(errorBody?.errors?.[0]?.message || err.message);
   }
 }
 
