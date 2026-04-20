@@ -42,6 +42,8 @@ const COL = {
     CITY: "text_mm0rv9zr",
     STATE: "dropdown_mm0r9ajj",
     ZIP: "text_mm0rrexv",
+    STATUS: "color_mm0rrea",
+    NOTES: "long_text_mm0rns1x",
   },
   TIME_ENTRIES: {
     TOTAL_HOURS: "numeric_mm21p49k",
@@ -730,7 +732,7 @@ async function createLocationItem(form) {
   if (form.streetAddress) cv[LOC.STREET_ADDRESS] = form.streetAddress;
   if (form.city) cv[LOC.CITY] = form.city;
   if (form.zip) cv[LOC.ZIP] = form.zip;
-  if (form.state) cv[LOC.STATE] = { label: form.state };
+  if (form.state) cv[LOC.STATE] = { labels: [form.state] };
   if (form.locationStatus) cv[LOC.STATUS] = { label: form.locationStatus };
   if (form.notes) cv[LOC.NOTES] = { text: form.notes };
 
@@ -763,7 +765,7 @@ async function updateLocationItem(itemId, form) {
   if (form.city !== undefined) cv[LOC.CITY] = form.city;
   if (form.zip !== undefined) cv[LOC.ZIP] = form.zip;
   if (form.state !== undefined) {
-    cv[LOC.STATE] = form.state ? { label: form.state } : { ids: [] };
+    cv[LOC.STATE] = form.state ? { labels: [form.state] } : { ids: [] };
   }
   if (form.locationStatus !== undefined) {
     cv[LOC.STATUS] = { label: form.locationStatus || "" };
