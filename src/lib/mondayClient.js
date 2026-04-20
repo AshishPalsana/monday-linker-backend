@@ -733,7 +733,7 @@ async function createLocationItem(form) {
   const LOC = COL.LOCATIONS;
   const cv = {};
 
-  if (form.streetAddress) cv[LOC.STREET_ADDRESS] = form.streetAddress;
+  if (form.streetAddress) cv[LOC.STREET] = form.streetAddress;
   if (form.city) cv[LOC.CITY] = form.city;
   if (form.zip) cv[LOC.ZIP] = form.zip;
   if (form.state) cv[LOC.STATE] = { labels: [form.state] };
@@ -765,7 +765,7 @@ async function updateLocationItem(itemId, form) {
   const LOC = COL.LOCATIONS;
   const cv = {};
 
-  if (form.streetAddress !== undefined) cv[LOC.STREET_ADDRESS] = form.streetAddress;
+  if (form.streetAddress !== undefined) cv[LOC.STREET] = form.streetAddress;
   if (form.city !== undefined) cv[LOC.CITY] = form.city;
   if (form.zip !== undefined) cv[LOC.ZIP] = form.zip;
   if (form.state !== undefined) {
