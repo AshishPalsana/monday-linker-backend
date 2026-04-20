@@ -827,7 +827,7 @@ async function getMasterCosts(workOrderId) {
     `);
 
     const items = result.boards?.[0]?.items_page?.items ?? [];
-    
+
     // Filter items that match the workOrderId in their WORK_ORDERS_REL column
     return items.filter(item => {
       const relCol = item.column_values.find(cv => cv.id === MC.WORK_ORDERS_REL);
@@ -835,7 +835,7 @@ async function getMasterCosts(workOrderId) {
       try {
         const parsed = JSON.parse(relCol.value);
         const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
-        return linkedIds.some(link => 
+        return linkedIds.some(link =>
           String(link.linkedPulseId || link) === String(workOrderId)
         );
       } catch (e) {
