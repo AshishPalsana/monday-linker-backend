@@ -70,7 +70,7 @@ router.post("/",
       // but the sync happens right away.
       setImmediate(async () => {
         try {
-          await syncLocation(pulseId);
+          await syncLocation(pulseId, req.body);
         } catch (err) {
           console.error(`[api/locations] Background sync failed for ${pulseId}:`, err.message);
         }

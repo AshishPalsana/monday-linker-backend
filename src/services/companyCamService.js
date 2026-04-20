@@ -72,15 +72,36 @@ async function createProjectReport(projectId, { title }) {
  * Centralized logic to sync a Monday Location item to CompanyCam.
  * To be used by both webhooks and direct API calls.
  */
-async function syncLocation(pulseId) {
+async function syncLocation(pulseId, initialData = null) {
   const prisma = require("../lib/prisma");
   const { getLocationDetails } = require("../lib/mondayClient");
 
   console.log(`[companyCamService] syncLocation triggered for pulse ${pulseId}`);
+  
+  // 0. Wait a moment for Monday to process the new item (indexing delay)
+  await new Promise(r => setTimeout(r, 2000));
 
   try {
-    // 1. Fetch location details from Monday
-    const loc = await getLocationDetails(pulseId);
+    // 1. Fetch location details from Monday (or use provided initial data)
+    let loc = initialData ? {
+      name: initialData.name,
+      streetAddress: initialData.streetAddress || "",
+      city: initialData.city || "",
+      state: initialData.state || "",
+      zip: initialData.zip || ""
+    } : null;
+
+    if (!loc) {
+      loc = await getLocationDetails(pulseId);
+      
+      // Simple one-time retry if data is suspiciously empty
+      if (!loc || (!loc.streetAddress && !loc.city)) {
+        console.log(`[companyCamService] Data for ${pulseId} looked empty, retrying in 3s...`);
+        await new Promise(r => setTimeout(r, 3000));
+        loc = await getLocationDetails(pulseId);
+      }
+    }
+
     if (!loc) {
       console.warn(`[companyCamService] Could not fetch details for item ${pulseId}. Skipping sync.`);
       return null;
@@ -96,28 +117,29 @@ async function syncLocation(pulseId) {
       return mapping.companyCamProjectId;
     }
 
-    // 3. Create Project in CompanyCam
-    const ccProject = await createProject({
-      name: loc.name,
-      address: loc.streetAddress,
-      city: loc.city,
-      state: loc.state,
-      zip: loc.zip
-    });
-
-    if (ccProject && ccProject.id) {
-      // 4. Save mapping in DB
-      mapping = await prisma.locationSync.upsert({
-        where: { mondayItemId: String(pulseId) },
-        update: { companyCamProjectId: String(ccProject.id) },
-        create: {
-          mondayItemId: String(pulseId),
-          companyCamProjectId: String(ccProject.id)
-        }
+      console.log(`[companyCamService] Sending to CompanyCam:`, { name: loc.name, address: loc.streetAddress });
+      
+      const ccProject = await createProject({
+        name: loc.name,
+        address: loc.streetAddress,
+        city: loc.city,
+        state: loc.state,
+        zip: loc.zip
       });
-      console.log(`[companyCamService] ✓ Item ${pulseId} synced to CompanyCam Project ${ccProject.id}`);
-      return ccProject.id;
-    } else {
+
+      if (ccProject && ccProject.id) {
+        // 4. Save mapping in DB
+        mapping = await prisma.locationSync.upsert({
+          where: { mondayItemId: String(pulseId) },
+          update: { companyCamProjectId: String(ccProject.id) },
+          create: {
+            mondayItemId: String(pulseId),
+            companyCamProjectId: String(ccProject.id)
+          }
+        });
+        console.log(`[companyCamService] ✓ Item ${pulseId} synced to CompanyCam Project ${ccProject.id}`);
+        return ccProject.id;
+      } else {
       throw new Error("CompanyCam Project creation returned no ID.");
     }
 
