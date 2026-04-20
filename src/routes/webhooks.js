@@ -171,28 +171,7 @@ router.post("/monday/item-created", async (req, res, next) => {
       console.log(`[webhook] Processing NEW LOCATION…`);
       setImmediate(async () => {
         try {
-          const loc = await getLocationDetails(pulseId);
-          if (loc) {
-            const ccProject = await companyCam.createProject({
-              name: loc.name,
-              address: loc.streetAddress,
-              city: loc.city,
-              state: loc.state,
-              zip: loc.zip
-            });
-
-            if (ccProject && ccProject.id) {
-              await prisma.locationSync.upsert({
-                where: { mondayItemId: String(pulseId) },
-                update: { companyCamProjectId: String(ccProject.id) },
-                create: {
-                  mondayItemId: String(pulseId),
-                  companyCamProjectId: String(ccProject.id)
-                }
-              });
-              console.log(`[webhook] ✓ CompanyCam Project created and mapped: ${ccProject.id}`);
-            }
-          }
+          await companyCam.syncLocation(pulseId);
         } catch (err) {
           console.error("[webhook] CompanyCam location sync error:", err.message);
         }

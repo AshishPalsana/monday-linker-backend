@@ -14,6 +14,7 @@ const webhookRoutes     = require("./routes/webhooks");
 const xeroRoutes        = require("./routes/xero");
 const billingRoutes     = require("./routes/billing");
 const customerRoutes    = require("./routes/customers");
+const locationsRoutes   = require("./routes/locations");
 const { errorHandler }  = require("./middleware/errorHandler");
 
 const app = express();
@@ -98,6 +99,7 @@ app.use("/api/webhooks",      webhookRoutes);
 app.use("/api/xero",          xeroRoutes);
 app.use("/api/billing",       billingRoutes);
 app.use("/api/customers",     customerRoutes);
+app.use("/api/locations",     locationsRoutes);
 
 // ── 404 ────────────────────────────────────────────────
 app.use((_req, res) => {

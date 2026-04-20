@@ -651,11 +651,89 @@ module.exports = {
   updateCustomerXeroStatus,
   updateCustomerXeroId,
   updateCustomerBillingDetails,
+  createLocationItem,
+  updateLocationItem,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
   WORK_ORDER_STATUS,
 };
+
+/**
+ * Creates a new item on the Locations board.
+ */
+async function createLocationItem(form) {
+  const LOC = COL.LOCATIONS;
+  const cv = {};
+
+  if (form.streetAddress) cv[LOC.STREET_ADDRESS] = form.streetAddress;
+  if (form.city) cv[LOC.CITY] = form.city;
+  if (form.zip) cv[LOC.ZIP] = form.zip;
+  if (form.state) cv[LOC.STATE] = { label: form.state };
+  if (form.locationStatus) cv[LOC.STATUS] = { label: form.locationStatus };
+  if (form.notes) cv[LOC.NOTES] = { text: form.notes };
+
+  const result = await graphql(`
+    mutation {
+      create_item(
+        board_id: ${BOARD.LOCATIONS},
+        group_id: "topics",
+        item_name: ${JSON.stringify(form.name)},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id name }
+    }
+  `);
+
+  if (!result?.create_item?.id) {
+    throw new Error("Monday: create_item for Location failed — no ID returned");
+  }
+
+  return result.create_item;
+}
+
+/**
+ * Updates an existing item on the Locations board.
+ */
+async function updateLocationItem(itemId, form) {
+  const LOC = COL.LOCATIONS;
+  const cv = {};
+
+  if (form.streetAddress !== undefined) cv[LOC.STREET_ADDRESS] = form.streetAddress;
+  if (form.city !== undefined) cv[LOC.CITY] = form.city;
+  if (form.zip !== undefined) cv[LOC.ZIP] = form.zip;
+  if (form.state !== undefined) {
+    cv[LOC.STATE] = form.state ? { label: form.state } : { ids: [] };
+  }
+  if (form.locationStatus !== undefined) {
+    cv[LOC.STATUS] = { label: form.locationStatus || "" };
+  }
+  if (form.notes !== undefined) cv[LOC.NOTES] = { text: form.notes || "" };
+
+  if (form.name) {
+    await graphql(`
+      mutation {
+        change_column_value(
+          board_id: ${BOARD.LOCATIONS},
+          item_id: ${itemId},
+          column_id: "name",
+          value: ${JSON.stringify(form.name)}
+        ) { id }
+      }
+    `);
+  }
+
+  if (Object.keys(cv).length > 0) {
+    await graphql(`
+      mutation {
+        change_multiple_column_values(
+          board_id: ${BOARD.LOCATIONS},
+          item_id: ${itemId},
+          column_values: ${JSON.stringify(JSON.stringify(cv))}
+        ) { id }
+      }
+    `);
+  }
+}
 
 async function getMasterCosts(workOrderId) {
   const MC = COL.MASTER_COSTS;
