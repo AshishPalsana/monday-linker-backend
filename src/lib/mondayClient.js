@@ -642,6 +642,7 @@ module.exports = {
   getLocationDetails,
   getCustomerDetails,
   getAllLocations,
+  getLocationsBoardData,
   getMasterCosts,
   createMasterCostItem,
   updateMasterCostItem,

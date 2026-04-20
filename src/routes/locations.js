@@ -9,6 +9,38 @@ const { syncLocation } = require("../services/companyCamService");
 router.use(requireAuth);
 
 /**
+ * GET /api/locations
+ * Fetches all locations from Monday.com.
+ */
+router.get("/", async (req, res, next) => {
+  try {
+    const { getLocationsBoardData } = require("../lib/mondayClient");
+    const prisma = require("../lib/prisma");
+
+    // 1. Fetch full board structure from Monday
+    const board = await getLocationsBoardData();
+    if (!board) throw new Error("Could not fetch locations board data");
+
+    // 2. Fetch mapping metadata
+    const syncs = await prisma.locationSync.findMany();
+    const syncMap = new Map(syncs.map(s => [s.mondayItemId, s.companyCamProjectId]));
+
+    // 3. Inject CC project ID into items
+    if (board.items_page?.items) {
+      board.items_page.items = board.items_page.items.map(item => ({
+        ...item,
+        companyCamProjectId: syncMap.get(String(item.id)) || null
+      }));
+    }
+
+    res.json({ success: true, data: board });
+  } catch (err) {
+    console.error("[api/locations] Fetch failed:", err.message);
+    next(err);
+  }
+});
+
+/**
  * POST /api/locations
  * Creates a new location in Monday.com AND syncs it to CompanyCam.
  */
