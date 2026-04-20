@@ -626,6 +626,66 @@ async function getCustomerDetails(itemId) {
     address: cv(COL.CUSTOMERS.BILLING_ADDRESS),
   };
 }
+/**
+ * Fetches the full Board structure for Locations, mirroring the frontend's FETCH_BOARD_DATA.
+ */
+async function getLocationsBoardData() {
+  const query = `
+    query GetBoardData($boardId: [ID!]) {
+      boards(ids: $boardId) {
+        id
+        name
+        groups {
+          id
+          title
+          color
+        }
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        items_page(limit: 100) {
+          items {
+            id
+            name
+            group {
+              id
+              title
+            }
+            column_values {
+              id
+              text
+              value
+              ... on StatusValue {
+                label
+                index
+              }
+              ... on BoardRelationValue {
+                display_value
+              }
+              ... on MirrorValue {
+                display_value
+              }
+              ... on CheckboxValue {
+                value
+              }
+              ... on DropdownValue {
+                text
+              }
+            }
+            created_at
+            updated_at
+          }
+        }
+      }
+    }
+  `;
+
+  const result = await graphql(query, { boardId: [BOARD.LOCATIONS] });
+  return result.boards?.[0] || null;
+}
 
 module.exports = {
   setWorkOrderExecutionStatus,
