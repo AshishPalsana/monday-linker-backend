@@ -127,6 +127,38 @@ router.post(
     try {
       const { entryType, workOrderRef, workOrderLabel, taskCategory, taskDescription } = req.body;
 
+      // ── Assignment-Based Validation ────────────────────────
+      if (entryType === "Job" && workOrderRef) {
+        let isAssigned = false;
+        
+        // 1. Check local cache
+        const localWO = await prisma.workOrder.findUnique({
+          where: { id: String(workOrderRef) }
+        });
+        
+        isAssigned = localWO?.assignedTechnicianIds.includes(String(req.technician.id));
+        
+        // 2. Self-healing fallback: If not assigned in local cache, verify with Monday directly
+        if (!isAssigned) {
+          console.log(`[clock-in] Cache miss/denied for WO ${workOrderRef}, tech ${req.technician.id}. Verifying with Monday…`);
+          const latestTechIds = await monday.getWorkOrderAssignedTechnicians(workOrderRef);
+          
+          // Atomically update local cache (idempotent upsert)
+          await prisma.workOrder.upsert({
+            where: { id: String(workOrderRef) },
+            update: { assignedTechnicianIds: latestTechIds },
+            create: { id: String(workOrderRef), assignedTechnicianIds: latestTechIds }
+          });
+          
+          isAssigned = latestTechIds.includes(String(req.technician.id));
+        }
+        
+        if (!isAssigned) {
+          console.warn(`[clock-in] Forbidden: Technician ${req.technician.id} not assigned to WO ${workOrderRef}`);
+          return res.status(403).json({ error: "You are not assigned to this work order" });
+        }
+      }
+
       const openEntries = await prisma.timeEntry.findMany({
         where: { technicianId: req.technician.id, clockOut: null },
       });

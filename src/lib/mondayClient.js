@@ -27,6 +27,7 @@ const COL = {
     EXPENSES_REL: "board_relation_mm2cgry0",
     WORK_PERFORMED: "long_text_mm15kfzp",
     DESCRIPTION: "long_text_mm14ee7h",
+    TECHNICIAN: "multiple_person_mm14sesj",
   },
   CUSTOMERS: {
     ACCOUNT_NUMBER: "text_mm0ryhr9",
@@ -731,6 +732,8 @@ module.exports = {
   updateCustomerBillingDetails,
   createLocationItem,
   updateLocationItem,
+  getWorkOrderAssignedTechnicians,
+  getActiveWorkOrders,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
@@ -767,6 +770,86 @@ async function createLocationItem(form) {
   }
 
   return result.create_item;
+}
+
+/**
+ * Fetches the assigned technician IDs (Monday IDs) for a specific Work Order.
+ */
+async function getWorkOrderAssignedTechnicians(itemId) {
+  const result = await graphql(`
+    query {
+      items(ids: [${itemId}]) {
+        column_values(ids: ["${COL.WORK_ORDERS.TECHNICIAN}"]) {
+          value
+        }
+      }
+    }
+  `);
+
+  const item = result.items?.[0];
+  if (!item) return [];
+
+  const techVal = item.column_values?.[0]?.value;
+  if (!techVal) return [];
+
+  try {
+    const parsed = JSON.parse(techVal);
+    // Monday people column value structures vary slightly by API version but usually have personsAndTeams
+    const persons = parsed.personsAndTeams || [];
+    return persons.map(p => String(p.id));
+  } catch (err) {
+    console.error(`[mondayClient] Failed to parse technicians for item ${itemId}:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Fetches all Active Work Orders to sync assignments.
+ */
+async function getActiveWorkOrders() {
+  const result = await graphql(`
+    query {
+      boards(ids: [${BOARD.WORK_ORDERS}]) {
+        groups(ids: ["topics"]) {
+          items_page(limit: 500) {
+            items {
+              id
+              name
+              column_values(ids: ["${COL.WORK_ORDERS.WORKORDER_ID}", "${COL.WORK_ORDERS.TECHNICIAN}"]) {
+                id
+                text
+                value
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  const groups = result.boards?.[0]?.groups || [];
+  const items = groups[0]?.items_page?.items || [];
+
+  return items.map(item => {
+    const woId = item.column_values.find(c => c.id === COL.WORK_ORDERS.WORKORDER_ID)?.text || "";
+    const techVal = item.column_values.find(c => c.id === COL.WORK_ORDERS.TECHNICIAN)?.value;
+    
+    let techIds = [];
+    if (techVal) {
+      try {
+        const parsed = JSON.parse(techVal);
+        const persons = parsed.personsAndTeams || [];
+        techIds = persons.map(p => String(p.id));
+      } catch (err) { }
+    }
+
+    return {
+      id: item.id,
+      name: item.name,
+      workOrderId: woId,
+      assignedTechnicianIds: techIds
+    };
+  });
 }
 
 /**

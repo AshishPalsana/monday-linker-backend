@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 const { getNextSequentialId } = require("../lib/idGenerator");
-const { updateWorkOrderId, updateCustomerAccountNumber, BOARD, getLocationDetails, getWorkOrderDetails } = require("../lib/mondayClient");
+const { updateWorkOrderId, updateCustomerAccountNumber, BOARD, COL, getLocationDetails, getWorkOrderDetails } = require("../lib/mondayClient");
 const companyCam = require("../services/companyCamService");
 const xeroService = require("../services/xeroService");
 
@@ -36,84 +36,111 @@ router.post("/monday/item-created", async (req, res, next) => {
     console.log(`[webhook] Event pulseId=${pulseId} boardId=${boardId}`);
 
     if (String(boardId) === woBoardId) {
-      console.log(`[webhook] Processing NEW WORK ORDER…`);
+      if (event.type === "create_pulse") {
+        console.log(`[webhook] Processing NEW WORK ORDER…`);
 
-      const newWorkOrderId = await getNextSequentialId(woBoardId, "WO-");
-      await updateWorkOrderId(pulseId, newWorkOrderId);
-      console.log(`[webhook] ✓ Work Order ID "${newWorkOrderId}" set on pulse ${pulseId}`);
+        const newWorkOrderId = await getNextSequentialId(woBoardId, "WO-");
+        await updateWorkOrderId(pulseId, newWorkOrderId);
+        console.log(`[webhook] ✓ Work Order ID "${newWorkOrderId}" set on pulse ${pulseId}`);
 
-      setImmediate(async () => {
-        let wo = null;
-        try {
-          wo = await getWorkOrderDetails(pulseId);
-        } catch (err) {
-          console.error("[webhook] Failed to fetch WO details:", err.message);
-        }
+        setImmediate(async () => {
+          let wo = null;
+          try {
+            wo = await getWorkOrderDetails(pulseId);
+          } catch (err) {
+            console.error("[webhook] Failed to fetch WO details:", err.message);
+          }
 
-        const workOrderName = wo?.name || newWorkOrderId;
+          const workOrderName = wo?.name || newWorkOrderId;
 
-        try {
-          await prisma.workOrder.upsert({
-            where: { id: String(pulseId) },
-            update: { workOrderId: newWorkOrderId },
-            create: { id: String(pulseId), workOrderId: newWorkOrderId },
-          });
-
-          console.log(`[webhook] Xero: Creating project for ${newWorkOrderId}…`);
-          const xeroProjectId = await xeroService.createXeroProject({
-            workOrderId: newWorkOrderId,
-            workOrderName: workOrderName,
-          });
-
-          await prisma.workOrderSync.upsert({
-            where: { mondayItemId: String(pulseId) },
-            update: { xeroProjectId, workOrderId: newWorkOrderId, syncError: null },
-            create: {
-              mondayItemId: String(pulseId),
-              workOrderId: newWorkOrderId,
-              xeroProjectId,
-            },
-          });
-
-          console.log(`[webhook] ✓ Xero Project created — projectId: ${xeroProjectId}`);
-        } catch (err) {
-          console.error("[webhook] ✗ Xero Project creation failed:", err.message);
-
-          await prisma.workOrderSync.upsert({
-            where: { mondayItemId: String(pulseId) },
-            update: { syncError: err.message, workOrderId: newWorkOrderId },
-            create: {
-              mondayItemId: String(pulseId),
-              workOrderId: newWorkOrderId,
-              syncError: err.message,
-            },
-          }).catch((dbErr) => {
-            console.error("[webhook] Failed to persist Xero sync error to DB:", dbErr.message);
-          });
-        }
-
-        try {
-          if (wo && wo.locationId) {
-            console.log(`[webhook] CompanyCam: Triggering report for WO ${newWorkOrderId} at location ${wo.locationId}`);
-            
-            // Find the mapped CompanyCam Project ID
-            const mapping = await prisma.locationSync.findUnique({
-              where: { mondayItemId: String(wo.locationId) }
+          try {
+            await prisma.workOrder.upsert({
+              where: { id: String(pulseId) },
+              update: { workOrderId: newWorkOrderId },
+              create: { id: String(pulseId), workOrderId: newWorkOrderId },
             });
 
-            if (mapping && mapping.companyCamProjectId) {
-              await companyCam.createProjectReport(mapping.companyCamProjectId, {
-                title: newWorkOrderId
-              });
-              console.log(`[webhook] ✓ CompanyCam report created for ${newWorkOrderId}`);
-            } else {
-              console.warn(`[webhook] CompanyCam: No project mapping found for location ${wo.locationId}. Skipping report.`);
-            }
+            console.log(`[webhook] Xero: Creating project for ${newWorkOrderId}…`);
+            const xeroProjectId = await xeroService.createXeroProject({
+              workOrderId: newWorkOrderId,
+              workOrderName: workOrderName,
+            });
+
+            await prisma.workOrderSync.upsert({
+              where: { mondayItemId: String(pulseId) },
+              update: { xeroProjectId, workOrderId: newWorkOrderId, syncError: null },
+              create: {
+                mondayItemId: String(pulseId),
+                workOrderId: newWorkOrderId,
+                xeroProjectId,
+              },
+            });
+
+            console.log(`[webhook] ✓ Xero Project created — projectId: ${xeroProjectId}`);
+          } catch (err) {
+            console.error("[webhook] ✗ Xero Project creation failed:", err.message);
+
+            await prisma.workOrderSync.upsert({
+              where: { mondayItemId: String(pulseId) },
+              update: { syncError: err.message, workOrderId: newWorkOrderId },
+              create: {
+                mondayItemId: String(pulseId),
+                workOrderId: newWorkOrderId,
+                syncError: err.message,
+              },
+            }).catch((dbErr) => {
+              console.error("[webhook] Failed to persist Xero sync error to DB:", dbErr.message);
+            });
           }
-        } catch (err) {
-          console.error("[webhook] CompanyCam report sync error:", err.message);
+
+          try {
+            if (wo && wo.locationId) {
+              console.log(`[webhook] CompanyCam: Triggering report for WO ${newWorkOrderId} at location ${wo.locationId}`);
+              
+              // Find the mapped CompanyCam Project ID
+              const mapping = await prisma.locationSync.findUnique({
+                where: { mondayItemId: String(wo.locationId) }
+              });
+
+              if (mapping && mapping.companyCamProjectId) {
+                await companyCam.createProjectReport(mapping.companyCamProjectId, {
+                  title: newWorkOrderId
+                });
+                console.log(`[webhook] ✓ CompanyCam report created for ${newWorkOrderId}`);
+              } else {
+                console.warn(`[webhook] CompanyCam: No project mapping found for location ${wo.locationId}. Skipping report.`);
+              }
+            }
+          } catch (err) {
+            console.error("[webhook] CompanyCam report sync error:", err.message);
+          }
+        });
+      } else if (event.type === "change_column_value") {
+        const techColId = String(COL.WORK_ORDERS.TECHNICIAN);
+        if (event.columnId === techColId) {
+          console.log(`[webhook] Technician assignment changed on pulse ${pulseId}`);
+          
+          let assignedIds = [];
+          try {
+            // Monday webhook payload for change_column_value sometimes gives value as a stringified object
+            const parsedValue = typeof event.value === 'string' ? JSON.parse(event.value) : event.value;
+            const persons = parsedValue?.personsAndTeams || [];
+            assignedIds = persons.map(p => String(p.id));
+          } catch (err) {
+            console.warn(`[webhook] Failed to parse new technician value for pulse ${pulseId}:`, err.message);
+            // If parsing fails, we could fetch fresh from API, but we'll wait for the next sync
+          }
+
+          if (assignedIds.length > 0 || (event.value && JSON.parse(event.value).personsAndTeams)) {
+             await prisma.workOrder.upsert({
+               where: { id: String(pulseId) },
+               update: { assignedTechnicianIds: assignedIds },
+               create: { id: String(pulseId), assignedTechnicianIds: assignedIds }
+             });
+             console.log(`[webhook] ✓ Updated local assignment for WO ${pulseId}:`, assignedIds);
+          }
         }
-      });
+      }
 
       return res.status(200).send("OK");
     }
