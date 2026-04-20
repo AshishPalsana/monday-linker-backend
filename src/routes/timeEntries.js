@@ -115,11 +115,11 @@ router.get(
 router.post(
   "/clock-in",
   [
-    body("entryType").isIn(["Job", "NonJob"]).withMessage("entryType must be Job or NonJob"),
+    body("entryType").isIn(["Job", "NonJob", "General"]).withMessage("entryType must be Job, NonJob, or General"),
     body("workOrderRef").if(body("entryType").equals("Job")).notEmpty().withMessage("workOrderRef is required for Job entries"),
     body("workOrderLabel").optional({ values: "null" }).isString(),
     body("taskCategory").optional({ values: "null" }).isString(),
-    body("taskDescription").if(body("entryType").equals("NonJob")).notEmpty().withMessage("taskDescription is required for NonJob entries"),
+    body("taskDescription").if(body("entryType").isIn(["NonJob", "General"])).notEmpty().withMessage("taskDescription is required for NonJob or General entries"),
   ],
   validate,
   requireBillingLock,

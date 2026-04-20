@@ -192,9 +192,8 @@ async function createTimeEntryItem({
 }) {
   const taskTypeId = entryType === "Job" ? 1 : 2; // Job=1, Non-Job=2 in Time Entries dropdown
 
-  const itemName = entryType === "Job"
     ? (workOrderLabel || "Job Entry")
-    : (taskDescription || "Non-Job Entry");
+    : (taskDescription || `${entryType} Entry`);
 
   const cv = {};
 
@@ -205,7 +204,12 @@ async function createTimeEntryItem({
   };
 
   // Task Type dropdown
-  cv[COL.TIME_ENTRIES.TASK_TYPE] = { ids: [taskTypeId] };
+  const labelMap = {
+    Job: "Job",
+    NonJob: "Non-Job",
+    General: "General"
+  };
+  cv[COL.TIME_ENTRIES.TASK_TYPE] = { label: labelMap[entryType] || "Non-Job" };
 
   // Link to Work Order board item
   if (entryType === "Job" && workOrderRef) {
