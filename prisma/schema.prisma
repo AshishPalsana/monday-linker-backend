@@ -135,6 +135,8 @@ model WorkOrder {
   billingStage  String?  // e.g. "Ready for Billing", "Sent to Xero"
   isLocked      Boolean  @default(false)
   
+  assignedTechnicianIds String[] @default([])
+  
   sync          WorkOrderSync?
   
   createdAt     DateTime @default(now())
