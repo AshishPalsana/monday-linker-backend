@@ -115,11 +115,11 @@ router.get(
 router.post(
   "/clock-in",
   [
-    body("entryType").isIn(["Job", "NonJob", "General"]).withMessage("entryType must be Job, NonJob, or General"),
+    body("entryType").isIn(["Job", "NonJob", "DailyShift"]).withMessage("entryType must be Job, NonJob, or DailyShift"),
     body("workOrderRef").if(body("entryType").equals("Job")).notEmpty().withMessage("workOrderRef is required for Job entries"),
     body("workOrderLabel").optional({ values: "null" }).isString(),
     body("taskCategory").optional({ values: "null" }).isString(),
-    body("taskDescription").if(body("entryType").isIn(["NonJob", "General"])).notEmpty().withMessage("taskDescription is required for NonJob or General entries"),
+    body("taskDescription").if(body("entryType").isIn(["NonJob", "DailyShift"])).notEmpty().withMessage("taskDescription is required for NonJob or DailyShift entries"),
   ],
   validate,
   requireBillingLock,
@@ -163,36 +163,47 @@ router.post(
         where: { technicianId: req.technician.id, clockOut: null },
       });
 
-      const sameTypeEntry = openEntries.find(e => e.entryType === entryType);
+      const activeShift = openEntries.find(e => e.entryType === "DailyShift");
+      const activeTask = openEntries.find(e => e.entryType === "Job" || e.entryType === "NonJob");
 
-      if (sameTypeEntry) {
-        if (entryType === "Job") {
-          console.log(`[clock-in] Auto-clockout for previous Job ${sameTypeEntry.id} as new Job ${workOrderRef} is starting`);
-          const now = new Date();
-          const diffMs = now - sameTypeEntry.clockIn;
-          const hours = parseFloat((diffMs / 3_600_000).toFixed(2));
+      // Requirement 1: Must have active DailyShift for any Task
+      if (entryType !== "DailyShift" && !activeShift) {
+        return res.status(403).json({ 
+          error: "You must clock in for the day (Daily Shift) before starting a task" 
+        });
+      }
 
-          await prisma.timeEntry.update({
-            where: { id: sameTypeEntry.id },
-            data: {
-              clockOut: now,
-              hoursWorked: hours,
-              status: "Complete",
-              narrative: `[Auto-Closed] Switched to new job ${workOrderLabel || workOrderRef}. Original session started at ${sameTypeEntry.clockIn.toISOString()}`,
-              jobLocation: sameTypeEntry.jobLocation || "Not provided (Auto-closed)"
-            }
-          });
+      // Requirement 2: Cannot have multiple DailyShifts
+      if (entryType === "DailyShift" && activeShift) {
+        return res.status(409).json({
+          error: "Already clocked in for the day",
+          activeEntryId: activeShift.id
+        });
+      }
 
-          if (sameTypeEntry.mondayItemId) {
-            setImmediate(() => {
-              monday.updateTimeEntryItem(sameTypeEntry.mondayItemId, { clockOut: now, hoursWorked: hours });
-              syncTimeEntryToCost(sameTypeEntry.id).catch(console.error);
-            });
+      // Requirement 3: Only one active task at a time. Auto-close previous if new one starts.
+      if ((entryType === "Job" || entryType === "NonJob") && activeTask) {
+        console.log(`[clock-in] Auto-clockout for previous ${activeTask.entryType} ${activeTask.id} as new ${entryType} is starting`);
+        
+        const now = new Date();
+        const diffMs = now - activeTask.clockIn;
+        const hours = parseFloat((diffMs / 3_600_000).toFixed(2));
+
+        await prisma.timeEntry.update({
+          where: { id: activeTask.id },
+          data: {
+            clockOut: now,
+            hoursWorked: hours,
+            status: "Complete",
+            narrative: `[Auto-Closed] Switched to new ${entryType === "Job" ? "job" : "task"} ${workOrderLabel || taskDescription || "session"}. Original started at ${activeTask.clockIn.toISOString()}`,
+            jobLocation: activeTask.jobLocation || "Not provided (Auto-closed)"
           }
-        } else {
-          return res.status(409).json({
-            error: `Already clocked in to a ${entryType} entry`,
-            activeEntryId: sameTypeEntry.id,
+        });
+
+        if (activeTask.mondayItemId) {
+          setImmediate(() => {
+            monday.updateTimeEntryItem(activeTask.mondayItemId, { clockOut: now, hoursWorked: hours });
+            syncTimeEntryToCost(activeTask.id).catch(console.error);
           });
         }
       }
@@ -325,11 +336,39 @@ router.patch(
           },
         });
 
-        if (expenses.length > 0) {
-          const { syncExpenseToCost } = require("../services/monday/syncService");
+        // Hierarchy Enforcement: If ending a DailyShift, auto-close any open tasks
+        if (entry.entryType === "DailyShift") {
+          const openTask = await tx.timeEntry.findFirst({
+            where: {
+              technicianId: req.technician.id,
+              clockOut: null,
+              entryType: { in: ["Job", "NonJob"] }
+            }
+          });
 
+          if (openTask) {
+            console.log(`[clock-out] Auto-closing task ${openTask.id} because DailyShift ${entry.id} is ending`);
+            const taskDiffMs = clockOut - openTask.clockIn;
+            const taskHours = parseFloat((taskDiffMs / 3_600_000).toFixed(2));
+
+            await tx.timeEntry.update({
+              where: { id: openTask.id },
+              data: {
+                clockOut: clockOut,
+                hoursWorked: taskHours,
+                status: "Complete",
+                narrative: `[Auto-Closed] Daily Shift ended at ${clockOut.toISOString()}`,
+                jobLocation: jobLocation || "Not provided (Auto-closed)"
+              }
+            });
+
+            // Note: Monday sync for the auto-closed task is handled in the setImmediate block below
+          }
+        }
+
+        if (expenses.length > 0) {
           for (const e of expenses) {
-            const expense = await tx.expense.create({
+            await tx.expense.create({
               data: {
                 timeEntryId: entry.id,
                 type: e.type,
@@ -350,6 +389,7 @@ router.patch(
         try {
           const hasExpenses = expenses.length > 0;
 
+          // 1. Sync the primary entry being clocked out
           if (entry.mondayItemId) {
             await monday.updateTimeEntryItem(entry.mondayItemId, {
               clockOut,
@@ -359,6 +399,31 @@ router.patch(
               jobLocation,
               workOrderRef: entry.workOrderRef,
             });
+          }
+
+          // 2. Handle auto-closed tasks if this was a DailyShift ending
+          if (entry.entryType === "DailyShift") {
+            const closedTask = await prisma.timeEntry.findFirst({
+              where: {
+                technicianId: req.technician.id,
+                clockOut: clockOut,
+                status: "Complete",
+                narrative: { startsWith: "[Auto-Closed]" }
+              },
+              orderBy: { updatedAt: "desc" }
+            });
+
+            if (closedTask?.mondayItemId) {
+              console.log(`[clock-out] Syncing auto-closed task ${closedTask.id} to Monday...`);
+              await monday.updateTimeEntryItem(closedTask.mondayItemId, {
+                clockOut: clockOut,
+                hoursWorked: closedTask.hoursWorked,
+                narrative: closedTask.narrative,
+                jobLocation: closedTask.jobLocation,
+                workOrderRef: closedTask.workOrderRef
+              });
+              await syncTimeEntryToCost(closedTask.id).catch(console.error);
+            }
           }
 
           if (entry.entryType === "Job" && entry.workOrderRef) {

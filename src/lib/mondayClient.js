@@ -207,7 +207,7 @@ async function createTimeEntryItem({
   const labelMap = {
     Job: "Job",
     NonJob: "Non-Job",
-    General: "General"
+    DailyShift: "DailyShift"
   };
   cv[COL.TIME_ENTRIES.TASK_TYPE] = { label: labelMap[entryType] || "Non-Job" };
 

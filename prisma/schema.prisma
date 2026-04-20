@@ -214,7 +214,7 @@ model LocationSync {
 enum EntryType {
   Job
   NonJob
-  General
+  DailyShift
 }
 
 enum EntryStatus {
