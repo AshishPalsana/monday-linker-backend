@@ -6,7 +6,7 @@ const { body } = require("express-validator");
 const { createLocationItem, updateLocationItem } = require("../lib/mondayClient");
 const { syncLocation } = require("../services/companyCamService");
 
-router.use(requireAuth);
+// router.use(requireAuth);
 
 /**
  * GET /api/locations

@@ -3,12 +3,12 @@ const router = express.Router();
 const prisma = require("../lib/prisma");
 const { body } = require("express-validator");
 const { combineAddress } = require("../utils/addressUtils");
-const { requireAuth } = require("../middleware/auth");
+// const { requireAuth } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const { syncCustomerToXero } = require("../services/customerSyncService");
 const { updateCustomerBillingDetails, updateCustomerXeroStatus } = require("../lib/mondayClient");
 
-router.use(requireAuth);
+// router.use(requireAuth);
 
 router.post("/upsert",
   [
