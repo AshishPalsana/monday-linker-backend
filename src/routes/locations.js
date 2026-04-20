@@ -35,8 +35,8 @@ router.get("/", async (req, res, next) => {
 
     res.json({ success: true, data: board });
   } catch (err) {
-    console.error("[api/locations] Fetch failed:", err.message);
-    next(err);
+    console.error("[api/locations] Fetch failed:", err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
 
@@ -84,8 +84,8 @@ router.post("/",
         }
       });
     } catch (err) {
-      console.error("[api/locations] Create failed:", err.message);
-      next(err);
+      console.error("[api/locations] Create failed:", err);
+      res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   }
 );
@@ -117,8 +117,8 @@ router.patch("/:id",
 
       res.json({ success: true, message: "Location updated and sync triggered." });
     } catch (err) {
-      console.error(`[api/locations] Update failed for ${pulseId}:`, err.message);
-      next(err);
+      console.error(`[api/locations] Update failed for ${pulseId}:`, err);
+      res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   }
 );
