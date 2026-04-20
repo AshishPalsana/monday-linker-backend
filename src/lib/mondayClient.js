@@ -488,15 +488,16 @@ async function getLatestCustomerAccountNumberFromBoard() {
  * Fetches details for a Location item.
  */
 async function getLocationDetails(itemId) {
+  const LOC = COL.LOCATIONS;
   const result = await graphql(`
     query {
       items(ids: [${itemId}]) {
         name
         column_values(ids: [
-          "text_mm0r64n", 
-          "text_mm0rv9zr", 
-          "dropdown_mm0r9ajj", 
-          "text_mm0rrexv"
+          "${LOC.STREET}", 
+          "${LOC.CITY}", 
+          "${LOC.STATE}", 
+          "${LOC.ZIP}"
         ]) {
           id
           text
@@ -508,14 +509,15 @@ async function getLocationDetails(itemId) {
   const item = result.items[0];
   if (!item) return null;
 
+  const loc = COL.LOCATIONS;
   const cv = id => item.column_values.find(c => c.id === id)?.text || "";
 
   return {
     name: item.name,
-    streetAddress: cv("text_mm0r64n"),
-    city: cv("text_mm0rv9zr"),
-    state: cv("dropdown_mm0r9ajj"),
-    zip: cv("text_mm0rrexv")
+    streetAddress: cv(loc.STREET),
+    city: cv(loc.CITY),
+    state: cv(loc.STATE),
+    zip: cv(loc.ZIP)
   };
 }
 
@@ -558,6 +560,7 @@ async function getWorkOrderDetails(itemId) {
  * Fetches all locations for bulk sync.
  */
 async function getAllLocations() {
+  const LOC = COL.LOCATIONS;
   const result = await graphql(`
     query {
       boards(ids: [${BOARD.LOCATIONS}]) {
@@ -566,10 +569,10 @@ async function getAllLocations() {
             id
             name
             column_values(ids: [
-              "text_mm0r64n", 
-              "text_mm0rv9zr", 
-              "dropdown_mm0r9ajj", 
-              "text_mm0rrexv"
+              "${LOC.STREET}", 
+              "${LOC.CITY}", 
+              "${LOC.STATE}", 
+              "${LOC.ZIP}"
             ]) {
               id
               text
@@ -581,15 +584,16 @@ async function getAllLocations() {
   `);
 
   const items = result.boards[0]?.items_page?.items || [];
+  const loc = COL.LOCATIONS;
   return items.map(item => {
     const cv = id => item.column_values.find(c => c.id === id)?.text || "";
     return {
       id: item.id,
       name: item.name,
-      streetAddress: cv("text_mm0r64n"),
-      city: cv("text_mm0rv9zr"),
-      state: cv("dropdown_mm0r9ajj"),
-      zip: cv("text_mm0rrexv")
+      streetAddress: cv(loc.STREET),
+      city: cv(loc.CITY),
+      state: cv(loc.STATE),
+      zip: cv(loc.ZIP)
     };
   });
 }
@@ -633,8 +637,8 @@ async function getCustomerDetails(itemId) {
  */
 async function getLocationsBoardData() {
   const query = `
-    query GetBoardData($boardId: [ID!]) {
-      boards(ids: $boardId) {
+    query {
+      boards(ids: [${BOARD.LOCATIONS}]) {
         id
         name
         groups {
@@ -685,7 +689,7 @@ async function getLocationsBoardData() {
     }
   `;
 
-  const result = await graphql(query, { boardId: [BOARD.LOCATIONS] });
+  const result = await graphql(query);
   return result.boards?.[0] || null;
 }
 
