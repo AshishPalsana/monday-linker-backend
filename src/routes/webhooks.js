@@ -24,8 +24,8 @@ router.post("/monday/item-created", async (req, res, next) => {
 
     console.log(`[webhook] Event received — type=${event.type} boardId=${event.boardId} pulseId=${event.pulseId}`);
 
-    if (event.type !== "create_pulse") {
-      console.log(`[webhook] Ignoring event type "${event.type}" — only create_pulse is handled`);
+    if (event.type !== "create_pulse" && event.type !== "change_column_value") {
+      console.log(`[webhook] Ignoring event type "${event.type}" — only create_pulse and change_column_value are handled`);
       return res.status(200).send("Ignored");
     }
 
@@ -168,7 +168,15 @@ router.post("/monday/item-created", async (req, res, next) => {
     }
 
     if (String(boardId) === String(BOARD.LOCATIONS)) {
-      console.log(`[webhook] Processing NEW LOCATION…`);
+      // For create_pulse, always sync. 
+      // For change_column_value, only sync if the status column changed.
+      const locStatusCol = String(COL.LOCATIONS.STATUS);
+      if (event.type === "change_column_value" && event.columnId !== locStatusCol) {
+        console.log(`[webhook] Ignoring change to column ${event.columnId} on Locations board (only tracking ${locStatusCol})`);
+        return res.status(200).send("Ignored");
+      }
+
+      console.log(`[webhook] Processing ${event.type === "create_pulse" ? "NEW" : "UPDATED"} LOCATION…`);
       setImmediate(async () => {
         try {
           await companyCam.syncLocation(pulseId);

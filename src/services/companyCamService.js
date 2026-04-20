@@ -69,6 +69,38 @@ async function createProjectReport(projectId, { title }) {
 }
 
 /**
+ * Archives a project in CompanyCam
+ */
+async function archiveProject(projectId) {
+  const client = getClient();
+  if (!client) return null;
+  try {
+    console.log(`[companyCamService] Archiving Project ${projectId}...`);
+    const response = await client.patch(`/projects/${projectId}/archive`);
+    return response.data;
+  } catch (err) {
+    console.error("[companyCamService] Error archiving project:", err.response?.data || err.message);
+    // We don't necessarily want to throw if it's already archived
+  }
+}
+
+/**
+ * Restores an archived project in CompanyCam
+ */
+async function restoreProject(projectId) {
+  const client = getClient();
+  if (!client) return null;
+  try {
+    console.log(`[companyCamService] Restoring Project ${projectId}...`);
+    const response = await client.put(`/projects/${projectId}/restore`);
+    return response.data;
+  } catch (err) {
+    console.error("[companyCamService] Error restoring project:", err.response?.data || err.message);
+    // We don't necessarily want to throw if it's already restored
+  }
+}
+
+/**
  * Centralized logic to sync a Monday Location item to CompanyCam.
  * To be used by both webhooks and direct API calls.
  */
@@ -88,7 +120,8 @@ async function syncLocation(pulseId, initialData = null) {
       streetAddress: initialData.streetAddress || "",
       city: initialData.city || "",
       state: initialData.state || "",
-      zip: initialData.zip || ""
+      zip: initialData.zip || "",
+      locationStatus: initialData.locationStatus || ""
     } : null;
 
     if (!loc) {
@@ -113,33 +146,49 @@ async function syncLocation(pulseId, initialData = null) {
     });
 
     if (mapping && mapping.companyCamProjectId) {
-      console.log(`[companyCamService] Item ${pulseId} already has CompanyCam Project ${mapping.companyCamProjectId}. Skipping re-creation.`);
+      console.log(`[companyCamService] Item ${pulseId} already has CompanyCam Project ${mapping.companyCamProjectId}.`);
+      
+      // Handle status update for existing project
+      if (loc.locationStatus === "Inactive") {
+        await archiveProject(mapping.companyCamProjectId);
+      } else if (loc.locationStatus === "Active") {
+        await restoreProject(mapping.companyCamProjectId);
+      }
+
       return mapping.companyCamProjectId;
     }
 
-      console.log(`[companyCamService] Sending to CompanyCam:`, { name: loc.name, address: loc.streetAddress });
-      
-      const ccProject = await createProject({
-        name: loc.name,
-        address: loc.streetAddress,
-        city: loc.city,
-        state: loc.state,
-        zip: loc.zip
-      });
+    // 3. Create Project in CompanyCam
+    // Note: CompanyCam API V2 documentation confirms name is the only required field.
+    console.log(`[companyCamService] Sending to CompanyCam:`, { name: loc.name, address: loc.streetAddress, status: loc.locationStatus });
+    
+    const ccProject = await createProject({
+      name: loc.name,
+      address: loc.streetAddress,
+      city: loc.city,
+      state: loc.state,
+      zip: loc.zip
+    });
 
-      if (ccProject && ccProject.id) {
-        // 4. Save mapping in DB
-        mapping = await prisma.locationSync.upsert({
-          where: { mondayItemId: String(pulseId) },
-          update: { companyCamProjectId: String(ccProject.id) },
-          create: {
-            mondayItemId: String(pulseId),
-            companyCamProjectId: String(ccProject.id)
-          }
-        });
-        console.log(`[companyCamService] ✓ Item ${pulseId} synced to CompanyCam Project ${ccProject.id}`);
-        return ccProject.id;
-      } else {
+    if (ccProject && ccProject.id) {
+      // 4. Save mapping in DB
+      mapping = await prisma.locationSync.upsert({
+        where: { mondayItemId: String(pulseId) },
+        update: { companyCamProjectId: String(ccProject.id) },
+        create: {
+          mondayItemId: String(pulseId),
+          companyCamProjectId: String(ccProject.id)
+        }
+      });
+      
+      // Handle status if created as Inactive
+      if (loc.locationStatus === "Inactive") {
+        await archiveProject(ccProject.id);
+      }
+
+      console.log(`[companyCamService] ✓ Item ${pulseId} synced to CompanyCam Project ${ccProject.id}`);
+      return ccProject.id;
+    } else {
       throw new Error("CompanyCam Project creation returned no ID.");
     }
 

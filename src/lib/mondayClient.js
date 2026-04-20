@@ -497,7 +497,9 @@ async function getLocationDetails(itemId) {
           "${LOC.STREET}", 
           "${LOC.CITY}", 
           "${LOC.STATE}", 
-          "${LOC.ZIP}"
+          "${LOC.ZIP}",
+          "${LOC.STATUS}",
+          "${LOC.NOTES}"
         ]) {
           id
           text
@@ -517,7 +519,9 @@ async function getLocationDetails(itemId) {
     streetAddress: cv(loc.STREET),
     city: cv(loc.CITY),
     state: cv(loc.STATE),
-    zip: cv(loc.ZIP)
+    zip: cv(loc.ZIP),
+    locationStatus: cv(loc.STATUS),
+    notes: cv(loc.NOTES)
   };
 }
 
@@ -572,7 +576,9 @@ async function getAllLocations() {
               "${LOC.STREET}", 
               "${LOC.CITY}", 
               "${LOC.STATE}", 
-              "${LOC.ZIP}"
+              "${LOC.ZIP}",
+              "${LOC.STATUS}",
+              "${LOC.NOTES}"
             ]) {
               id
               text
@@ -593,7 +599,9 @@ async function getAllLocations() {
       streetAddress: cv(loc.STREET),
       city: cv(loc.CITY),
       state: cv(loc.STATE),
-      zip: cv(loc.ZIP)
+      zip: cv(loc.ZIP),
+      locationStatus: cv(loc.STATUS),
+      notes: cv(loc.NOTES)
     };
   });
 }
