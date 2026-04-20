@@ -190,8 +190,7 @@ async function createTimeEntryItem({
   taskDescription,
   clockIn,
 }) {
-  const taskTypeId = entryType === "Job" ? 1 : 2; // Job=1, Non-Job=2 in Time Entries dropdown
-
+  const itemName = entryType === "Job"
     ? (workOrderLabel || "Job Entry")
     : (taskDescription || `${entryType} Entry`);
 
