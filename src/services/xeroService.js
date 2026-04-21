@@ -189,22 +189,28 @@ async function createXeroProject({ workOrderId, workOrderName, contactId, deadli
     Date.now() + deadlineDays * 24 * 60 * 60 * 1000
   );
 
-  console.log(`[xeroService] Creating Xero Project: "${projectName}" deadlineUtc=${deadlineUtc}`);
+  console.log(`[xeroService] Creating Xero Project: "${projectName}" deadlineUtc=${deadlineUtc.toISOString()}`);
 
   let response;
   try {
     response = await xero.projectApi.createProject(tenantId, {
       name:            projectName,
       contactId:       contactId,
-      deadlineUtc:     deadlineUtc,
+      deadlineUtc:     deadlineUtc.toISOString(),
       estimateAmount:  0,
-      currencyCode:    "AUD", // Adjust to your currency if needed (USD, NZD, etc.)
+      // Removed hardcoded currencyCode to avoid organization mismatch errors
     });
   } catch (err) {
     // xero-node wraps HTTP errors — extract useful info
     const body = err.response?.body;
-    const detail = body?.Detail || body?.Message || body?.error || err.message;
-    console.error("[xeroService] Xero createProject API error:", detail);
+    const detail = body?.Detail || body?.Message || body?.error || (body ? JSON.stringify(body) : null) || err.message;
+    console.error(`[xeroService] Xero createProject API error:`, detail, `Status: ${err.response?.statusCode}`);
+    
+    // Log the full body for debugging if still undefined/obscure
+    if (!body?.Detail && !body?.Message) {
+      console.log(`[xeroService] Full error body:`, JSON.stringify(body));
+    }
+
     throw new Error(`Xero createProject failed: ${detail}`);
   }
 
