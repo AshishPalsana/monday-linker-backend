@@ -8,7 +8,47 @@ const { validate } = require("../middleware/validate");
 const { syncCustomerToXero } = require("../services/customerSyncService");
 const { updateCustomerBillingDetails, updateCustomerXeroStatus } = require("../lib/mondayClient");
 
+const { getCustomerDetails } = require("../lib/mondayClient");
+
 // router.use(requireAuth);
+
+/**
+ * GET /api/customers/:id
+ * Fetches a single customer's structured data (address, sync status) from DB.
+ */
+router.get("/:id", async (req, res, next) => {
+  const pulseId = req.params.id;
+  try {
+    let customer = await prisma.customer.findUnique({
+      where: { id: pulseId },
+    });
+
+    if (!customer) {
+      console.log(`[api/customers] Customer ${pulseId} not found in DB. Fetching from Monday fallback…`);
+      const mondayData = await getCustomerDetails(pulseId);
+      if (mondayData) {
+        // Return a skeleton matching the DB structure
+        return res.json({
+          success: true,
+          data: {
+            id: pulseId,
+            name: mondayData.name,
+            email: mondayData.email,
+            phone: mondayData.phone,
+            billingAddress: mondayData.address,
+            // Rest are nulls/defaults
+          }
+        });
+      }
+      return res.status(404).json({ error: "Customer not found in DB or Monday." });
+    }
+
+    res.json({ success: true, data: customer });
+  } catch (err) {
+    console.error(`[api/customers] GET /:id failed:`, err.message);
+    next(err);
+  }
+});
 
 router.post("/upsert",
   [
