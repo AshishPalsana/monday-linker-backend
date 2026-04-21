@@ -248,9 +248,12 @@ router.post("/monday/item-created", async (req, res, next) => {
         return; // already sent res above
       }
 
-      // Technician column change
+      // Column change events
       if (event.type === "change_column_value") {
         const techColId = String(COL.WORK_ORDERS.TECHNICIAN);
+        const custColId = String(COL.WORK_ORDERS.CUSTOMER);
+
+        // ── Technician assignment ───────────────────────────────────────────
         if (event.columnId === techColId) {
           console.log(`[webhook] Technician assignment changed on pulse ${pulseId}`);
 
@@ -271,6 +274,73 @@ router.post("/monday/item-created", async (req, res, next) => {
             });
             console.log(`[webhook] ✓ Updated technician assignment for WO ${pulseId}:`, assignedIds);
           }
+        }
+
+        // ── Customer linked/changed — create Xero Project if not yet done ──
+        if (event.columnId === custColId) {
+          console.log(`[webhook] Customer column changed on WO pulse ${pulseId} — checking Xero Project status`);
+
+          res.status(200).send("OK");
+
+          setImmediate(async () => {
+            try {
+              // Skip if a Xero project already exists
+              const existingSync = await prisma.workOrderSync.findUnique({
+                where: { mondayItemId: String(pulseId) },
+              });
+              if (existingSync?.xeroProjectId) {
+                console.log(`[webhook] WO ${pulseId} already has Xero Project ${existingSync.xeroProjectId} — skipping`);
+                return;
+              }
+
+              // Fetch current WO state (customer should now be set)
+              const wo = await getWorkOrderDetails(pulseId);
+              if (!wo?.customerId) {
+                console.log(`[webhook] WO ${pulseId} customer column cleared — nothing to do`);
+                return;
+              }
+
+              const xeroContactId = await resolveXeroContact(wo.customerId);
+              if (!xeroContactId) {
+                throw new Error(
+                  `Customer ${wo.customerId} could not be synced to Xero. ` +
+                  "Fix the customer sync first, then retry this Work Order."
+                );
+              }
+
+              const workOrderId = existingSync?.workOrderId || wo.workOrderId || String(pulseId);
+              const workOrderName = wo.name || workOrderId;
+
+              console.log(`[webhook] Creating Xero Project for WO ${pulseId} (triggered by customer link)…`);
+              const xeroProjectId = await xeroService.createXeroProject({
+                workOrderId,
+                workOrderName,
+                contactId: xeroContactId,
+              });
+
+              await prisma.workOrderSync.upsert({
+                where: { mondayItemId: String(pulseId) },
+                update: { xeroProjectId, workOrderId, syncError: null },
+                create: { mondayItemId: String(pulseId), workOrderId, xeroProjectId },
+              });
+
+              console.log(`[webhook] ✓ Xero Project created for WO ${pulseId} — projectId: ${xeroProjectId}`);
+            } catch (err) {
+              console.error(`[webhook] ✗ Xero Project creation (on customer link) failed for WO ${pulseId}:`, err.message);
+
+              await prisma.workOrderSync.upsert({
+                where: { mondayItemId: String(pulseId) },
+                update: { syncError: err.message },
+                create: {
+                  mondayItemId: String(pulseId),
+                  workOrderId: String(pulseId),
+                  syncError: err.message,
+                },
+              }).catch((dbErr) => console.error("[webhook] Failed to persist WO sync error:", dbErr.message));
+            }
+          });
+
+          return; // res already sent
         }
       }
 
