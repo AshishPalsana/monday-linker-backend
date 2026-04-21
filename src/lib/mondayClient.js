@@ -537,7 +537,7 @@ async function getWorkOrderDetails(itemId) {
     query {
       items(ids: [${itemId}]) {
         name
-        column_values(ids: ["board_relation_mm2czk6k"]) {
+        column_values(ids: ["${COL.WORK_ORDERS.LOCATION}", "${COL.WORK_ORDERS.CUSTOMER}"]) {
           id
           value
           text
@@ -549,7 +549,7 @@ async function getWorkOrderDetails(itemId) {
   const item = result.items[0];
   if (!item) return null;
 
-  const locCol = item.column_values.find(c => c.id === "board_relation_mm2czk6k");
+  const locCol = item.column_values.find(c => c.id === COL.WORK_ORDERS.LOCATION);
   let locationId = null;
   if (locCol?.value) {
     try {
@@ -558,9 +558,19 @@ async function getWorkOrderDetails(itemId) {
     } catch (e) { }
   }
 
+  const custCol = item.column_values.find(c => c.id === COL.WORK_ORDERS.CUSTOMER);
+  let customerId = null;
+  if (custCol?.value) {
+    try {
+      const parsed = JSON.parse(custCol.value);
+      customerId = parsed.linkedPulseIds?.[0]?.linkedPulseId || null;
+    } catch (e) { }
+  }
+
   return {
     name: item.name,
-    locationId
+    locationId,
+    customerId
   };
 }
 

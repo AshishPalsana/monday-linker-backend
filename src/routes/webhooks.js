@@ -60,10 +60,54 @@ router.post("/monday/item-created", async (req, res, next) => {
               create: { id: String(pulseId), workOrderId: newWorkOrderId },
             });
 
+            let xeroContactId = null;
+
+            // Resolve Xero Contact for the linked customer
+            if (wo && wo.customerId) {
+              console.log(`[webhook] WO ${newWorkOrderId} is linked to Customer ${wo.customerId}. Checking Xero sync…`);
+              
+              // 1. Check local DB for existing sync
+              const customerMapping = await prisma.customer.findUnique({
+                where: { id: String(wo.customerId) }
+              });
+
+              if (customerMapping?.xeroContactId) {
+                xeroContactId = customerMapping.xeroContactId;
+                console.log(`[webhook] Found existing Xero ContactID: ${xeroContactId}`);
+              } else {
+                console.log(`[webhook] Customer ${wo.customerId} not synced yet. Triggering auto-sync…`);
+                const { getCustomerDetails } = require("../lib/mondayClient");
+                const cust = await getCustomerDetails(wo.customerId);
+                
+                if (cust) {
+                  xeroContactId = await xeroService.createXeroContact({
+                    name: cust.name,
+                    email: cust.email,
+                    phone: cust.phone,
+                    accountNumber: cust.accountNumber,
+                    address: cust.address
+                  });
+
+                  // Persist the mapping
+                  await prisma.customer.upsert({
+                    where: { id: String(wo.customerId) },
+                    update: { xeroContactId, xeroSyncStatus: "Synced" },
+                    create: { id: String(wo.customerId), xeroContactId, xeroSyncStatus: "Synced" }
+                  });
+                }
+              }
+            }
+
+            if (!xeroContactId) {
+              console.warn(`[webhook] Could not resolve Xero Contact for WO ${newWorkOrderId}. Continuing without project creation or failing? (Failing for now to ensure billing connectivity)`);
+              throw new Error("No Customer linked to this Work Order. Projects require a Customer.");
+            }
+
             console.log(`[webhook] Xero: Creating project for ${newWorkOrderId}…`);
             const xeroProjectId = await xeroService.createXeroProject({
               workOrderId: newWorkOrderId,
               workOrderName: workOrderName,
+              contactId: xeroContactId,
             });
 
             await prisma.workOrderSync.upsert({

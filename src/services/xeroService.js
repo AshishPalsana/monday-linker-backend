@@ -171,8 +171,12 @@ async function getAuthenticatedClient() {
  *
  * @returns {string} xeroProjectId (UUID)
  */
-async function createXeroProject({ workOrderId, workOrderName, deadlineDays = DEFAULT_DEADLINE_DAYS }) {
-  console.log(`[xeroService] createXeroProject — workOrderId=${workOrderId}`);
+async function createXeroProject({ workOrderId, workOrderName, contactId, deadlineDays = DEFAULT_DEADLINE_DAYS }) {
+  console.log(`[xeroService] createXeroProject — workOrderId=${workOrderId} contactId=${contactId || "MISSING"}`);
+
+  if (!contactId) {
+    throw new Error(`Xero Project creation requires a contactId. Please ensure the customer is synced to Xero first.`);
+  }
 
   const { xero, tenantId } = await getAuthenticatedClient();
 
@@ -191,6 +195,7 @@ async function createXeroProject({ workOrderId, workOrderName, deadlineDays = DE
   try {
     response = await xero.projectApi.createProject(tenantId, {
       name:            projectName,
+      contactId:       contactId,
       deadlineUtc:     deadlineUtc,
       estimateAmount:  0,
       currencyCode:    "AUD", // Adjust to your currency if needed (USD, NZD, etc.)
@@ -198,7 +203,7 @@ async function createXeroProject({ workOrderId, workOrderName, deadlineDays = DE
   } catch (err) {
     // xero-node wraps HTTP errors — extract useful info
     const body = err.response?.body;
-    const detail = body?.Detail || body?.Message || err.message;
+    const detail = body?.Detail || body?.Message || body?.error || err.message;
     console.error("[xeroService] Xero createProject API error:", detail);
     throw new Error(`Xero createProject failed: ${detail}`);
   }
@@ -302,7 +307,7 @@ async function updateXeroProjectStatus(xeroProjectId, status) {
     console.log(`[xeroService] ✓ Xero Project status updated to ${status}`);
   } catch (err) {
     const body = err.response?.body;
-    const detail = body?.Detail || body?.Message || err.message;
+    const detail = body?.Detail || body?.Message || body?.error || err.message;
     console.error("[xeroService] Xero patchProject error:", detail);
     throw new Error(`Xero patchProject failed: ${detail}`);
   }

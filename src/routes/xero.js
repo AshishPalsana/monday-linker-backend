@@ -228,9 +228,51 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
     }
 
     // Retry the Xero Project creation
+    const { getWorkOrderDetails } = require("../lib/mondayClient");
+    const wo = await getWorkOrderDetails(mondayItemId);
+    const workOrderName = wo?.name || record.workOrderId;
+
+    let xeroContactId = null;
+
+    if (wo && wo.customerId) {
+      console.log(`[xero] Retry-sync: Resolving Xero Contact for Customer ${wo.customerId}…`);
+      
+      const customerMapping = await prisma.customer.findUnique({
+        where: { id: String(wo.customerId) }
+      });
+
+      if (customerMapping?.xeroContactId) {
+        xeroContactId = customerMapping.xeroContactId;
+      } else {
+        const { getCustomerDetails } = require("../lib/mondayClient");
+        const cust = await getCustomerDetails(wo.customerId);
+        
+        if (cust) {
+          xeroContactId = await xeroService.createXeroContact({
+            name: cust.name,
+            email: cust.email,
+            phone: cust.phone,
+            accountNumber: cust.accountNumber,
+            address: cust.address
+          });
+
+          await prisma.customer.upsert({
+            where: { id: String(wo.customerId) },
+            update: { xeroContactId, xeroSyncStatus: "Synced" },
+            create: { id: String(wo.customerId), xeroContactId, xeroSyncStatus: "Synced" }
+          });
+        }
+      }
+    }
+
+    if (!xeroContactId) {
+      throw new Error("Cannot sync to Xero: No customer linked to this Work Order, or customer sync failed.");
+    }
+
     const xeroProjectId = await createXeroProject({
       workOrderId: record.workOrderId,
-      workOrderName: record.workOrderId, // name available in record
+      workOrderName: workOrderName,
+      contactId: xeroContactId,
     });
 
     if (!prisma.workOrderSync) {
