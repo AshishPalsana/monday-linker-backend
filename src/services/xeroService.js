@@ -185,8 +185,9 @@ async function createXeroProject({ workOrderId, workOrderName, contactId, deadli
     ? `${workOrderId} — ${workOrderName}`
     : workOrderId;
 
+  const days = Number(deadlineDays) || 90;
   const deadlineUtc = new Date(
-    Date.now() + deadlineDays * 24 * 60 * 60 * 1000
+    Date.now() + days * 24 * 60 * 60 * 1000
   );
 
   console.log(`[xeroService] Creating Xero Project: "${projectName}" deadlineUtc=${deadlineUtc.toISOString()}`);
@@ -196,7 +197,7 @@ async function createXeroProject({ workOrderId, workOrderName, contactId, deadli
     response = await xero.projectApi.createProject(tenantId, {
       name:            projectName,
       contactId:       contactId,
-      deadlineUtc:     deadlineUtc.toISOString(),
+      deadlineUtc:     deadlineUtc, // The SDK expects a Date object, not a string
       estimateAmount:  0,
       // Removed hardcoded currencyCode to avoid organization mismatch errors
     });
