@@ -209,7 +209,7 @@ async function createTimeEntryItem({
     NonJob: "Non-Job",
     DailyShift: "DailyShift"
   };
-  cv[COL.TIME_ENTRIES.TASK_TYPE] = { label: labelMap[entryType] || "Non-Job" };
+  cv[COL.TIME_ENTRIES.TASK_TYPE] = { labels: [labelMap[entryType] || "Non-Job"] };
 
   // Link to Work Order board item
   if (entryType === "Job" && workOrderRef) {
@@ -539,8 +539,13 @@ async function getWorkOrderDetails(itemId) {
         name
         column_values {
           id
-          value
           text
+          value
+          ... on BoardRelationValue {
+            linked_items {
+              id
+            }
+          }
         }
       }
     }
@@ -554,24 +559,31 @@ async function getWorkOrderDetails(itemId) {
 
   console.log(`[mondayClient] getWorkOrderDetails — Raw item:`, JSON.stringify(item, null, 2));
 
-  const parseRelationId = (cv) => {
-    if (!cv?.value) return null;
-    try {
-      const parsed = JSON.parse(cv.value);
-      // Try multiple possible structures for Monday relations
-      const linked = parsed.linkedPulseIds || parsed.pulseIds || parsed.item_ids || [];
-      const first = linked[0];
-      if (!first) return null;
-      // Handle {linkedPulseId: ...} or just the ID itself
-      return String(first.linkedPulseId || first.id || first);
-    } catch (e) {
-      console.warn(`[mondayClient] Failed to parse relation column ${cv.id}:`, e.message);
-      return null;
+  const extractId = (colId) => {
+    const col = item.column_values.find(c => c.id === colId);
+    if (!col) return null;
+
+    // 1. Try modern linked_items from Fragment
+    if (col.linked_items && col.linked_items.length > 0) {
+      return String(col.linked_items[0].id);
     }
+
+    // 2. Fallback to parsing JSON value
+    if (col.value) {
+      try {
+        const parsed = JSON.parse(col.value);
+        const linked = parsed.linkedPulseIds || parsed.pulseIds || parsed.item_ids || [];
+        const first = linked[0];
+        if (first) return String(first.linkedPulseId || first.id || first);
+      } catch (e) { }
+    }
+
+    // 3. Last resort: check text if it looks like a numeric ID (rare but possible)
+    return null;
   };
 
-  const locationId = parseRelationId(item.column_values.find(c => c.id === COL.WORK_ORDERS.LOCATION));
-  const customerId = parseRelationId(item.column_values.find(c => c.id === COL.WORK_ORDERS.CUSTOMER));
+  const locationId = extractId(COL.WORK_ORDERS.LOCATION);
+  const customerId = extractId(COL.WORK_ORDERS.CUSTOMER);
 
   if (locationId) console.log(`[mondayClient] Resolved locationId=${locationId}`);
   if (customerId) console.log(`[mondayClient] Resolved customerId=${customerId}`);
