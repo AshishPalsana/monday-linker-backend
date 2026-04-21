@@ -292,7 +292,20 @@ async function createXeroContact({
     return resultId;
   } catch (err) {
     const body = err.response?.body;
-    const detail = body?.Elements?.[0]?.ValidationErrors?.[0]?.Message || body?.Message || err.message;
+    if (body) {
+      console.error("[xeroService] Xero API response body:", typeof body === "string" ? body : JSON.stringify(body));
+    }
+    const detail =
+      (typeof body === "object" && body !== null
+        ? body?.Elements?.[0]?.ValidationErrors?.[0]?.Message ||
+          body?.Detail ||
+          body?.Message ||
+          body?.error
+        : typeof body === "string"
+        ? body
+        : null) ||
+      err.message ||
+      `Xero API error (HTTP ${err.response?.statusCode ?? "unknown"})`;
     console.error("[xeroService] Sync error:", detail);
     throw new Error(detail);
   }

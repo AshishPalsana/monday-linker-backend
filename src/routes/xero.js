@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
-const { buildXeroClient, XERO_SCOPES, createXeroProject } = require("../services/xeroService");
+const { buildXeroClient, XERO_SCOPES, createXeroProject, createXeroContact } = require("../services/xeroService");
 
 
 /**
@@ -248,7 +248,7 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
         const cust = await getCustomerDetails(wo.customerId);
         
         if (cust) {
-          xeroContactId = await xeroService.createXeroContact({
+          xeroContactId = await createXeroContact({
             name: cust.name,
             email: cust.email,
             phone: cust.phone,
