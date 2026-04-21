@@ -2,9 +2,125 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 const { getNextSequentialId } = require("../lib/idGenerator");
-const { updateWorkOrderId, updateCustomerAccountNumber, BOARD, COL, getLocationDetails, getWorkOrderDetails } = require("../lib/mondayClient");
+const {
+  updateWorkOrderId,
+  updateCustomerAccountNumber,
+  updateCustomerXeroId,
+  updateCustomerXeroStatus,
+  BOARD,
+  COL,
+  getWorkOrderDetails,
+  getCustomerDetails,
+} = require("../lib/mondayClient");
 const companyCam = require("../services/companyCamService");
 const xeroService = require("../services/xeroService");
+
+/**
+ * Resolve (or create) a Xero Contact for a given Monday customer pulse.
+ *
+ * Strategy:
+ *  1. If DB already has a xeroContactId → return it immediately (idempotent).
+ *  2. Otherwise fetch customer details from Monday and call createXeroContact,
+ *     which internally handles duplicate-name conflicts by finding the existing
+ *     contact in Xero rather than failing.
+ *  3. Persist the result to DB and write it back to the Monday board.
+ *
+ * Returns null (and logs a warning) if the customer cannot be resolved.
+ */
+async function resolveXeroContact(customerId) {
+  const custId = String(customerId);
+
+  // 1. Fast path — already synced
+  const existing = await prisma.customer.findUnique({ where: { id: custId } });
+  if (existing?.xeroContactId) {
+    console.log(`[webhook] Customer ${custId} already synced → ContactID: ${existing.xeroContactId}`);
+    return existing.xeroContactId;
+  }
+
+  // 2. Fetch details from Monday
+  const cust = await getCustomerDetails(custId);
+  if (!cust?.name) {
+    console.warn(`[webhook] Customer ${custId} not found in Monday — cannot resolve Xero Contact`);
+    return null;
+  }
+
+  // 3. Create/find in Xero (createXeroContact handles duplicate-name conflicts)
+  let xeroContactId;
+  try {
+    xeroContactId = await xeroService.createXeroContact({
+      name: cust.name,
+      email: cust.email || undefined,
+      phone: cust.phone || undefined,
+      accountNumber: cust.accountNumber || undefined,
+      // Prefer structured address fields from DB; fall back to Monday's combined string
+      addressLine1: existing?.addressLine1 || cust.address || undefined,
+      addressLine2: existing?.addressLine2 || undefined,
+      city: existing?.city || undefined,
+      state: existing?.state || undefined,
+      zip: existing?.zip || undefined,
+      country: existing?.country || "USA",
+    });
+  } catch (xeroErr) {
+    console.error(`[webhook] Xero contact creation failed for customer ${custId}:`, xeroErr.message);
+
+    // Mark Monday status as Error
+    await updateCustomerXeroStatus(custId, "Error").catch(() => {});
+
+    // Persist failure to DB
+    await prisma.customer.upsert({
+      where: { id: custId },
+      update: {
+        xeroSyncStatus: "Failed",
+        syncErrorMessage: xeroErr.message,
+        lastSyncAt: new Date(),
+      },
+      create: {
+        id: custId,
+        name: cust.name,
+        email: cust.email || null,
+        phone: cust.phone || null,
+        xeroSyncStatus: "Failed",
+        syncErrorMessage: xeroErr.message,
+        lastSyncAt: new Date(),
+      },
+    }).catch((dbErr) => console.error("[webhook] DB persist of Xero error failed:", dbErr.message));
+
+    return null;
+  }
+
+  // 4. Persist success to DB
+  await prisma.customer.upsert({
+    where: { id: custId },
+    update: {
+      xeroContactId,
+      xeroSyncStatus: "Synced",
+      syncErrorMessage: null,
+      lastSyncAt: new Date(),
+    },
+    create: {
+      id: custId,
+      name: cust.name,
+      email: cust.email || null,
+      phone: cust.phone || null,
+      xeroContactId,
+      xeroSyncStatus: "Synced",
+      lastSyncAt: new Date(),
+    },
+  }).catch((dbErr) => console.error("[webhook] DB persist of Xero success failed:", dbErr.message));
+
+  // 5. Write back to Monday board (non-blocking — board display is secondary)
+  await updateCustomerXeroId(custId, xeroContactId).catch((e) =>
+    console.warn(`[webhook] Monday Xero-ID update failed for ${custId}:`, e.message)
+  );
+  await updateCustomerXeroStatus(custId, "Synced").catch((e) =>
+    console.warn(`[webhook] Monday Xero-Status update failed for ${custId}:`, e.message)
+  );
+
+  console.log(`[webhook] ✓ Customer ${custId} "${cust.name}" → Xero ContactID: ${xeroContactId}`);
+  return xeroContactId;
+}
+
+// ── Main webhook handler ────────────────────────────────────────────────────
 
 router.post("/monday/item-created", async (req, res, next) => {
   try {
@@ -25,7 +141,7 @@ router.post("/monday/item-created", async (req, res, next) => {
     console.log(`[webhook] Event received — type=${event.type} boardId=${event.boardId} pulseId=${event.pulseId}`);
 
     if (event.type !== "create_pulse" && event.type !== "change_column_value") {
-      console.log(`[webhook] Ignoring event type "${event.type}" — only create_pulse and change_column_value are handled`);
+      console.log(`[webhook] Ignoring event type "${event.type}"`);
       return res.status(200).send("Ignored");
     }
 
@@ -33,17 +149,32 @@ router.post("/monday/item-created", async (req, res, next) => {
     const woBoardId = String(BOARD.WORK_ORDERS);
     const custBoardId = String(BOARD.CUSTOMERS);
 
-    console.log(`[webhook] Event pulseId=${pulseId} boardId=${boardId}`);
-
+    // ── Work Orders board ───────────────────────────────────────────────────
     if (String(boardId) === woBoardId) {
       if (event.type === "create_pulse") {
         console.log(`[webhook] Processing NEW WORK ORDER…`);
 
+        // Assign sequential WO-ID synchronously so Monday reflects it immediately
         const newWorkOrderId = await getNextSequentialId(woBoardId, "WO-");
         await updateWorkOrderId(pulseId, newWorkOrderId);
         console.log(`[webhook] ✓ Work Order ID "${newWorkOrderId}" set on pulse ${pulseId}`);
 
+        // Respond to Monday immediately — all heavy work runs in background
+        res.status(200).send("OK");
+
         setImmediate(async () => {
+          // Persist work order record
+          try {
+            await prisma.workOrder.upsert({
+              where: { id: String(pulseId) },
+              update: { workOrderId: newWorkOrderId },
+              create: { id: String(pulseId), workOrderId: newWorkOrderId },
+            });
+          } catch (dbErr) {
+            console.error("[webhook] Failed to upsert work order record:", dbErr.message);
+          }
+
+          // Fetch WO details to get linked customer & location
           let wo = null;
           try {
             wo = await getWorkOrderDetails(pulseId);
@@ -53,71 +184,35 @@ router.post("/monday/item-created", async (req, res, next) => {
 
           const workOrderName = wo?.name || newWorkOrderId;
 
+          // ── Xero Project creation ─────────────────────────────────────────
           try {
-            await prisma.workOrder.upsert({
-              where: { id: String(pulseId) },
-              update: { workOrderId: newWorkOrderId },
-              create: { id: String(pulseId), workOrderId: newWorkOrderId },
-            });
-
-            let xeroContactId = null;
-
-            // Resolve Xero Contact for the linked customer
-            if (wo && wo.customerId) {
-              console.log(`[webhook] WO ${newWorkOrderId} is linked to Customer ${wo.customerId}. Checking Xero sync…`);
-              
-              // 1. Check local DB for existing sync
-              const customerMapping = await prisma.customer.findUnique({
-                where: { id: String(wo.customerId) }
-              });
-
-              if (customerMapping?.xeroContactId) {
-                xeroContactId = customerMapping.xeroContactId;
-                console.log(`[webhook] Found existing Xero ContactID: ${xeroContactId}`);
-              } else {
-                console.log(`[webhook] Customer ${wo.customerId} not synced yet. Triggering auto-sync…`);
-                const { getCustomerDetails } = require("../lib/mondayClient");
-                const cust = await getCustomerDetails(wo.customerId);
-                
-                if (cust) {
-                  xeroContactId = await xeroService.createXeroContact({
-                    name: cust.name,
-                    email: cust.email,
-                    phone: cust.phone,
-                    accountNumber: cust.accountNumber,
-                    address: cust.address
-                  });
-
-                  // Persist the mapping
-                  await prisma.customer.upsert({
-                    where: { id: String(wo.customerId) },
-                    update: { xeroContactId, xeroSyncStatus: "Synced" },
-                    create: { id: String(wo.customerId), xeroContactId, xeroSyncStatus: "Synced" }
-                  });
-                }
-              }
+            if (!wo?.customerId) {
+              throw new Error(
+                "No Customer linked to this Work Order. " +
+                "Link a customer and use 'Retry Sync' on the Work Order to create the Xero Project."
+              );
             }
+
+            const xeroContactId = await resolveXeroContact(wo.customerId);
 
             if (!xeroContactId) {
-              console.warn(`[webhook] Could not resolve Xero Contact for WO ${newWorkOrderId}. Continuing without project creation or failing? (Failing for now to ensure billing connectivity)`);
-              throw new Error("No Customer linked to this Work Order. Projects require a Customer.");
+              throw new Error(
+                `Customer ${wo.customerId} could not be synced to Xero. ` +
+                "Fix the customer sync first, then retry this Work Order."
+              );
             }
 
-            console.log(`[webhook] Xero: Creating project for ${newWorkOrderId}…`);
+            console.log(`[webhook] Creating Xero Project for ${newWorkOrderId}…`);
             const xeroProjectId = await xeroService.createXeroProject({
               workOrderId: newWorkOrderId,
-              workOrderName: workOrderName,
+              workOrderName,
               contactId: xeroContactId,
             });
 
             await prisma.workOrderSync.upsert({
               where: { mondayItemId: String(pulseId) },
               update: { xeroProjectId, workOrderId: newWorkOrderId, syncError: null },
-              create: {
-                mondayItemId: String(pulseId),
-                workOrderId: newWorkOrderId,
-                xeroProjectId,
-              },
+              create: { mondayItemId: String(pulseId), workOrderId: newWorkOrderId, xeroProjectId },
             });
 
             console.log(`[webhook] ✓ Xero Project created — projectId: ${xeroProjectId}`);
@@ -127,61 +222,54 @@ router.post("/monday/item-created", async (req, res, next) => {
             await prisma.workOrderSync.upsert({
               where: { mondayItemId: String(pulseId) },
               update: { syncError: err.message, workOrderId: newWorkOrderId },
-              create: {
-                mondayItemId: String(pulseId),
-                workOrderId: newWorkOrderId,
-                syncError: err.message,
-              },
-            }).catch((dbErr) => {
-              console.error("[webhook] Failed to persist Xero sync error to DB:", dbErr.message);
-            });
+              create: { mondayItemId: String(pulseId), workOrderId: newWorkOrderId, syncError: err.message },
+            }).catch((dbErr) => console.error("[webhook] Failed to persist Xero sync error:", dbErr.message));
           }
 
+          // ── CompanyCam report ─────────────────────────────────────────────
           try {
-            if (wo && wo.locationId) {
-              console.log(`[webhook] CompanyCam: Triggering report for WO ${newWorkOrderId} at location ${wo.locationId}`);
-              
-              // Find the mapped CompanyCam Project ID
+            if (wo?.locationId) {
               const mapping = await prisma.locationSync.findUnique({
-                where: { mondayItemId: String(wo.locationId) }
+                where: { mondayItemId: String(wo.locationId) },
               });
 
-              if (mapping && mapping.companyCamProjectId) {
-                await companyCam.createProjectReport(mapping.companyCamProjectId, {
-                  title: newWorkOrderId
-                });
+              if (mapping?.companyCamProjectId) {
+                await companyCam.createProjectReport(mapping.companyCamProjectId, { title: newWorkOrderId });
                 console.log(`[webhook] ✓ CompanyCam report created for ${newWorkOrderId}`);
               } else {
-                console.warn(`[webhook] CompanyCam: No project mapping found for location ${wo.locationId}. Skipping report.`);
+                console.warn(`[webhook] No CompanyCam project mapping for location ${wo.locationId}`);
               }
             }
           } catch (err) {
             console.error("[webhook] CompanyCam report sync error:", err.message);
           }
         });
-      } else if (event.type === "change_column_value") {
+
+        return; // already sent res above
+      }
+
+      // Technician column change
+      if (event.type === "change_column_value") {
         const techColId = String(COL.WORK_ORDERS.TECHNICIAN);
         if (event.columnId === techColId) {
           console.log(`[webhook] Technician assignment changed on pulse ${pulseId}`);
-          
+
           let assignedIds = [];
           try {
-            // Monday webhook payload for change_column_value sometimes gives value as a stringified object
-            const parsedValue = typeof event.value === 'string' ? JSON.parse(event.value) : event.value;
+            const parsedValue = typeof event.value === "string" ? JSON.parse(event.value) : event.value;
             const persons = parsedValue?.personsAndTeams || [];
-            assignedIds = persons.map(p => String(p.id));
+            assignedIds = persons.map((p) => String(p.id));
           } catch (err) {
-            console.warn(`[webhook] Failed to parse new technician value for pulse ${pulseId}:`, err.message);
-            // If parsing fails, we could fetch fresh from API, but we'll wait for the next sync
+            console.warn(`[webhook] Failed to parse technician value for pulse ${pulseId}:`, err.message);
           }
 
-          if (assignedIds.length > 0 || (event.value && JSON.parse(event.value).personsAndTeams)) {
-             await prisma.workOrder.upsert({
-               where: { id: String(pulseId) },
-               update: { assignedTechnicianIds: assignedIds },
-               create: { id: String(pulseId), assignedTechnicianIds: assignedIds }
-             });
-             console.log(`[webhook] ✓ Updated local assignment for WO ${pulseId}:`, assignedIds);
+          if (assignedIds.length > 0) {
+            await prisma.workOrder.upsert({
+              where: { id: String(pulseId) },
+              update: { assignedTechnicianIds: assignedIds },
+              create: { id: String(pulseId), assignedTechnicianIds: assignedIds },
+            });
+            console.log(`[webhook] ✓ Updated technician assignment for WO ${pulseId}:`, assignedIds);
           }
         }
       }
@@ -189,61 +277,100 @@ router.post("/monday/item-created", async (req, res, next) => {
       return res.status(200).send("OK");
     }
 
+    // ── Customers board ─────────────────────────────────────────────────────
     if (String(boardId) === custBoardId) {
       console.log(`[webhook] Processing NEW CUSTOMER…`);
 
+      // Assign sequential CUST-ID synchronously
       const newAccountNumber = await getNextSequentialId(custBoardId, "CUST-");
       await updateCustomerAccountNumber(pulseId, newAccountNumber);
-      console.log(`[webhook] ✓ Successfully set Customer Account Number "${newAccountNumber}" on item ${pulseId}`);
+      console.log(`[webhook] ✓ Customer Account Number "${newAccountNumber}" set on item ${pulseId}`);
 
-      // 2. Sync to Xero as a Contact (non-blocking)
+      // Respond to Monday immediately
+      res.status(200).send("OK");
+
+      // Sync to Xero in background
       setImmediate(async () => {
         try {
-          const { getCustomerDetails } = require("../lib/mondayClient");
-          const cust = await getCustomerDetails(pulseId);
-
-          if (cust) {
-            // Check if we have structured data in our DB (Source of Truth)
-            const structured = await prisma.customer.findUnique({
-              where: { id: String(pulseId) }
-            });
-
-            console.log(`[webhook] Xero: Syncing customer "${cust.name}" (${newAccountNumber})…`);
-
-            await xeroService.createXeroContact({
-              name: cust.name,
-              email: cust.email,
-              phone: cust.phone,
-              // Structured fields from DB (if available)
-              addressLine1: structured?.addressLine1,
-              addressLine2: structured?.addressLine2,
-              city: structured?.city,
-              state: structured?.state,
-              zip: structured?.zip,
-              country: structured?.country,
-              // Fallback to Monday's combined string
-              address: structured ? undefined : cust.address,
-              accountNumber: newAccountNumber,
-            });
-            console.log(`[webhook] ✓ Xero Contact synced for customer ${pulseId}`);
-
-            // Link back Xero ID if created
-            // TODO: Update pulse with xeroContactId if returned
+          // Fetch fresh details (account number is now set on Monday)
+          const cust = await getCustomerDetails(String(pulseId));
+          if (!cust?.name) {
+            console.warn(`[webhook] Customer ${pulseId} has no name — skipping Xero sync`);
+            return;
           }
+
+          // Check if structured address is already in DB (from /api/customers/upsert)
+          const dbRecord = await prisma.customer.findUnique({ where: { id: String(pulseId) } });
+
+          const xeroContactId = await xeroService.createXeroContact({
+            name: cust.name,
+            email: cust.email || undefined,
+            phone: cust.phone || undefined,
+            accountNumber: newAccountNumber,
+            addressLine1: dbRecord?.addressLine1 || cust.address || undefined,
+            addressLine2: dbRecord?.addressLine2 || undefined,
+            city: dbRecord?.city || undefined,
+            state: dbRecord?.state || undefined,
+            zip: dbRecord?.zip || undefined,
+            country: dbRecord?.country || "USA",
+          });
+
+          // Persist to DB
+          await prisma.customer.upsert({
+            where: { id: String(pulseId) },
+            update: {
+              xeroContactId,
+              xeroSyncStatus: "Synced",
+              syncErrorMessage: null,
+              lastSyncAt: new Date(),
+            },
+            create: {
+              id: String(pulseId),
+              name: cust.name,
+              email: cust.email || null,
+              phone: cust.phone || null,
+              accountNumber: newAccountNumber,
+              xeroContactId,
+              xeroSyncStatus: "Synced",
+              lastSyncAt: new Date(),
+            },
+          });
+
+          // Write back to Monday board
+          await updateCustomerXeroId(String(pulseId), xeroContactId).catch((e) =>
+            console.warn(`[webhook] Monday Xero-ID update failed:`, e.message)
+          );
+          await updateCustomerXeroStatus(String(pulseId), "Synced").catch((e) =>
+            console.warn(`[webhook] Monday Xero-Status update failed:`, e.message)
+          );
+
+          console.log(`[webhook] ✓ Customer "${cust.name}" → Xero ContactID: ${xeroContactId}`);
         } catch (err) {
-          console.error("[webhook] ✗ Xero Contact sync failed:", err.message);
+          console.error("[webhook] ✗ Customer Xero sync failed:", err.message);
+
+          // Persist failure
+          await prisma.customer.upsert({
+            where: { id: String(pulseId) },
+            update: { xeroSyncStatus: "Failed", syncErrorMessage: err.message, lastSyncAt: new Date() },
+            create: {
+              id: String(pulseId),
+              xeroSyncStatus: "Failed",
+              syncErrorMessage: err.message,
+              lastSyncAt: new Date(),
+            },
+          }).catch(() => {});
+
+          await updateCustomerXeroStatus(String(pulseId), "Error").catch(() => {});
         }
       });
 
-      return res.status(200).send("OK");
+      return; // already sent res above
     }
 
+    // ── Locations board ─────────────────────────────────────────────────────
     if (String(boardId) === String(BOARD.LOCATIONS)) {
-      // For create_pulse, always sync. 
-      // For change_column_value, only sync if the status column changed.
       const locStatusCol = String(COL.LOCATIONS.STATUS);
       if (event.type === "change_column_value" && event.columnId !== locStatusCol) {
-        console.log(`[webhook] Ignoring change to column ${event.columnId} on Locations board (only tracking ${locStatusCol})`);
         return res.status(200).send("Ignored");
       }
 
@@ -258,8 +385,7 @@ router.post("/monday/item-created", async (req, res, next) => {
       return res.status(200).send("OK");
     }
 
-
-    console.log(`[webhook] Ignoring — event is for board ${boardId}, not monitored for auto-ID`);
+    console.log(`[webhook] Ignoring — event is for unmonitored board ${boardId}`);
     return res.status(200).send("Ignored");
   } catch (error) {
     console.error("[webhook] ✗ Error processing Monday.com event:", error.message);
@@ -268,19 +394,12 @@ router.post("/monday/item-created", async (req, res, next) => {
   }
 });
 
+// ── Debug / Admin routes ────────────────────────────────────────────────────
+
 router.get("/debug/seed-customers", async (req, res) => {
   try {
-    const { getNextSequentialId } = require("../lib/idGenerator");
-    const { BOARD } = require("../lib/mondayClient");
-
-    console.log("[debug] Manual seeding for Customers board...");
     const nextId = await getNextSequentialId(BOARD.CUSTOMERS, "CUST-");
-
-    res.json({
-      status: "ok",
-      message: "Customer counter seeded successfully",
-      nextIdAvailable: nextId
-    });
+    res.json({ status: "ok", message: "Customer counter seeded successfully", nextIdAvailable: nextId });
   } catch (err) {
     console.error("[debug] Seeding failed:", err.message);
     res.status(500).json({ status: "error", message: err.message });
@@ -289,20 +408,13 @@ router.get("/debug/seed-customers", async (req, res) => {
 
 router.get("/debug/reset-customers", async (req, res) => {
   try {
-    const prisma = require("../lib/prisma");
-    const { BOARD } = require("../lib/mondayClient");
     const startFrom = parseInt(req.query.start) || 1000;
-
     await prisma.sequentialIdCounter.upsert({
       where: { boardId: BOARD.CUSTOMERS },
       update: { currentId: startFrom },
-      create: { boardId: BOARD.CUSTOMERS, prefix: "CUST-", currentId: startFrom }
+      create: { boardId: BOARD.CUSTOMERS, prefix: "CUST-", currentId: startFrom },
     });
-
-    res.json({
-      status: "ok",
-      message: `Customer counter reset to ${startFrom}. Next ID will be ${startFrom + 1}`
-    });
+    res.json({ status: "ok", message: `Customer counter reset to ${startFrom}. Next ID will be CUST-${startFrom + 1}` });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }

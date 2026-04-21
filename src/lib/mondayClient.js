@@ -584,12 +584,15 @@ async function getWorkOrderDetails(itemId) {
 
   const locationId = extractId(COL.WORK_ORDERS.LOCATION);
   const customerId = extractId(COL.WORK_ORDERS.CUSTOMER);
+  const workOrderId = item.column_values.find(c => c.id === COL.WORK_ORDERS.WORKORDER_ID)?.text || null;
 
   if (locationId) console.log(`[mondayClient] Resolved locationId=${locationId}`);
   if (customerId) console.log(`[mondayClient] Resolved customerId=${customerId}`);
+  if (workOrderId) console.log(`[mondayClient] Resolved workOrderId=${workOrderId}`);
 
   return {
     name: item.name,
+    workOrderId,
     locationId,
     customerId
   };

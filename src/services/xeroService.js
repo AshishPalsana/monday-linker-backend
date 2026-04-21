@@ -346,7 +346,7 @@ async function createXeroContact({
         // We escape single quotes in the name to prevent injection/syntax errors
         const safeName = name.replace(/'/g, "''");
         const searchResponse = await xero.accountingApi.getContacts(tenantId, undefined, `Name=="${safeName}"`);
-        const existing = searchResponse.body?.contacts?.find(c => c.name === name);
+        const existing = searchResponse.body?.contacts?.find(c => c.name?.toLowerCase() === name.toLowerCase());
 
         if (existing) {
           console.log(`[xeroService] ✓ Conflict resolved. Found existing contactId: ${existing.contactID}`);
