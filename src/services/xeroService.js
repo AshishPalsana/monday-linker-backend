@@ -64,6 +64,52 @@ function buildXeroClient() {
 }
 
 /**
+ * Extracts a human-readable error message from Xero SDK error objects.
+ * Handles both Accounting (v2.0) and Projects (v2.0) API structures.
+ * 
+ * v15.0 SDK typically uses err.response.data (axios) or err.response.body.
+ */
+function parseXeroError(err) {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+
+  const response = err.response;
+  const body = response?.data || response?.body || err.body;
+  const statusCode = response?.statusCode || response?.status || err.statusCode || err.status;
+
+  let detail = null;
+
+  if (body && typeof body === "object") {
+    // 1. Accounting API validation errors (Elements[0].ValidationErrors)
+    const elements = body.Elements || body.elements;
+    if (Array.isArray(elements) && elements[0]?.ValidationErrors) {
+      detail = elements[0].ValidationErrors.map(ve => ve.Message).join("; ");
+    } 
+    else if (Array.isArray(elements) && elements[0]?.validationErrors) {
+      detail = elements[0].validationErrors.map(ve => ve.message).join("; ");
+    }
+    
+    // 2. Projects API / Other keys
+    detail = detail || body.Detail || body.detail || body.Message || body.message || body.error;
+
+    // 3. Last resort for objects: JSON stringify
+    if (!detail) {
+      detail = JSON.stringify(body);
+    }
+  }
+
+  // 4. Fallback to top-level error message
+  const finalMessage = detail || err.message || (statusCode ? `HTTP ${statusCode}` : "Xero API Error");
+
+  console.error(`[xeroService] Parsed Error Detail:`, finalMessage);
+  if (body) {
+    console.log(`[xeroService] Raw Error Body:`, JSON.stringify(body));
+  }
+
+  return finalMessage;
+}
+
+/**
  * Refreshes the Xero access token using the stored refresh_token.
  * Updates the DB record with the new token set.
  *
@@ -202,16 +248,7 @@ async function createXeroProject({ workOrderId, workOrderName, contactId, deadli
       // Removed hardcoded currencyCode to avoid organization mismatch errors
     });
   } catch (err) {
-    // xero-node wraps HTTP errors — extract useful info
-    const body = err.response?.body;
-    const detail = body?.Detail || body?.Message || body?.error || (body ? JSON.stringify(body) : null) || err.message;
-    console.error(`[xeroService] Xero createProject API error:`, detail, `Status: ${err.response?.statusCode}`);
-    
-    // Log the full body for debugging if still undefined/obscure
-    if (!body?.Detail && !body?.Message) {
-      console.log(`[xeroService] Full error body:`, JSON.stringify(body));
-    }
-
+    const detail = parseXeroError(err);
     throw new Error(`Xero createProject failed: ${detail}`);
   }
 
@@ -301,25 +338,7 @@ async function createXeroContact({
     console.log(`[xeroService] ✓ Xero Contact synced — contactId=${resultId}`);
     return resultId;
   } catch (err) {
-    // xero-node can throw: Error objects, plain objects, or strings
-    const body = err?.response?.body ?? err?.body;
-    if (body) {
-      console.error("[xeroService] Xero API response body:", typeof body === "string" ? body : JSON.stringify(body));
-    }
-    const statusCode = err?.response?.statusCode ?? err?.statusCode ?? err?.response?.status ?? err?.status;
-    const detail =
-      (typeof err === "string" ? err : null) ||
-      (typeof body === "object" && body !== null
-        ? body?.Elements?.[0]?.ValidationErrors?.[0]?.Message ||
-          body?.Detail ||
-          body?.Message ||
-          body?.error
-        : typeof body === "string"
-        ? body
-        : null) ||
-      err?.message ||
-      (statusCode ? `Xero API error (HTTP ${statusCode})` : "Xero API error — see server logs for details");
-    console.error("[xeroService] Sync error:", detail);
+    const detail = parseXeroError(err);
     throw new Error(detail);
   }
 }
@@ -339,9 +358,7 @@ async function updateXeroProjectStatus(xeroProjectId, status) {
     await xero.projectApi.patchProject(tenantId, xeroProjectId, { status });
     console.log(`[xeroService] ✓ Xero Project status updated to ${status}`);
   } catch (err) {
-    const body = err.response?.body;
-    const detail = body?.Detail || body?.Message || body?.error || err.message;
-    console.error("[xeroService] Xero patchProject error:", detail);
+    const detail = parseXeroError(err);
     throw new Error(`Xero patchProject failed: ${detail}`);
   }
 }
