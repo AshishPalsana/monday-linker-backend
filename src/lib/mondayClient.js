@@ -537,7 +537,7 @@ async function getWorkOrderDetails(itemId) {
     query {
       items(ids: [${itemId}]) {
         name
-        column_values(ids: ["${COL.WORK_ORDERS.LOCATION}", "${COL.WORK_ORDERS.CUSTOMER}"]) {
+        column_values {
           id
           value
           text
@@ -547,25 +547,34 @@ async function getWorkOrderDetails(itemId) {
   `);
 
   const item = result.items[0];
-  if (!item) return null;
-
-  const locCol = item.column_values.find(c => c.id === COL.WORK_ORDERS.LOCATION);
-  let locationId = null;
-  if (locCol?.value) {
-    try {
-      const parsed = JSON.parse(locCol.value);
-      locationId = parsed.linkedPulseIds?.[0]?.linkedPulseId || null;
-    } catch (e) { }
+  if (!item) {
+    console.error(`[mondayClient] getWorkOrderDetails — No item found for pulseId=${itemId}`);
+    return null;
   }
 
-  const custCol = item.column_values.find(c => c.id === COL.WORK_ORDERS.CUSTOMER);
-  let customerId = null;
-  if (custCol?.value) {
+  console.log(`[mondayClient] getWorkOrderDetails — Raw item:`, JSON.stringify(item, null, 2));
+
+  const parseRelationId = (cv) => {
+    if (!cv?.value) return null;
     try {
-      const parsed = JSON.parse(custCol.value);
-      customerId = parsed.linkedPulseIds?.[0]?.linkedPulseId || null;
-    } catch (e) { }
-  }
+      const parsed = JSON.parse(cv.value);
+      // Try multiple possible structures for Monday relations
+      const linked = parsed.linkedPulseIds || parsed.pulseIds || parsed.item_ids || [];
+      const first = linked[0];
+      if (!first) return null;
+      // Handle {linkedPulseId: ...} or just the ID itself
+      return String(first.linkedPulseId || first.id || first);
+    } catch (e) {
+      console.warn(`[mondayClient] Failed to parse relation column ${cv.id}:`, e.message);
+      return null;
+    }
+  };
+
+  const locationId = parseRelationId(item.column_values.find(c => c.id === COL.WORK_ORDERS.LOCATION));
+  const customerId = parseRelationId(item.column_values.find(c => c.id === COL.WORK_ORDERS.CUSTOMER));
+
+  if (locationId) console.log(`[mondayClient] Resolved locationId=${locationId}`);
+  if (customerId) console.log(`[mondayClient] Resolved customerId=${customerId}`);
 
   return {
     name: item.name,
