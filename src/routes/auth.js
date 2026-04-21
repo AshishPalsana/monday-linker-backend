@@ -36,11 +36,12 @@ router.post(
     try {
       const { mondayUserId, name, email, isAdmin = false } = req.body;
 
-      // Upsert technician — creates on first login, updates name on subsequent logins
+      // Upsert technician — always sync isAdmin from Monday on every login
       const technician = await prisma.technician.upsert({
         where: { id: String(mondayUserId) },
         update: {
           name,
+          isAdmin: Boolean(isAdmin),
           ...(email !== undefined ? { email } : {}),
         },
         create: {
