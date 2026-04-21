@@ -92,7 +92,13 @@ function parseXeroError(err) {
     // 2. Projects API / Other keys
     detail = detail || body.Detail || body.detail || body.Message || body.message || body.error;
 
-    // 3. Last resort for objects: JSON stringify
+    // 3. Handle Xero "ModelState" errors (e.g. model.EstimateAmount)
+    if (!detail && body.modelState) {
+      const ms = body.modelState;
+      detail = Object.values(ms).flat().join("; ");
+    }
+
+    // 4. Last resort for objects: JSON stringify
     if (!detail) {
       detail = JSON.stringify(body);
     }
@@ -244,7 +250,7 @@ async function createXeroProject({ workOrderId, workOrderName, contactId, deadli
       name:            projectName,
       contactId:       contactId,
       deadlineUtc:     deadlineUtc, // The SDK expects a Date object, not a string
-      estimateAmount:  0,
+      // Omitted estimateAmount as Xero rejects 0.00
       // Removed hardcoded currencyCode to avoid organization mismatch errors
     });
   } catch (err) {
