@@ -260,14 +260,24 @@ async function createXeroContact({
   };
 
   const syncTask = async () => {
+    console.log(`[xeroService] Calling createContacts — tenantId=${tenantId} name="${name}"`);
     try {
       const response = await xero.accountingApi.createContacts(tenantId, {
         contacts: [contact],
       });
       return response.body?.contacts?.[0]?.contactID;
     } catch (err) {
+      // Full diagnostic dump so we can see the exact shape xero-node throws
+      console.error("[xeroService] createContacts threw — typeof:", typeof err, "| constructor:", err?.constructor?.name);
+      try {
+        console.error("[xeroService] createContacts error dump:", JSON.stringify(err, Object.getOwnPropertyNames(err ?? {})));
+      } catch (_) {
+        console.error("[xeroService] createContacts error (not serialisable):", String(err));
+      }
+
       // Recovery: If contact ID exists but was deleted/not found in Xero (404)
-      if (xeroContactId && (err.response?.status === 404 || err.status === 404)) {
+      const status = err?.response?.statusCode ?? err?.statusCode ?? err?.response?.status ?? err?.status;
+      if (xeroContactId && status === 404) {
         console.warn(`[xeroService] Contact ${xeroContactId} not found in Xero. Retrying as new creation.`);
         delete contact.contactID;
         const retryResponse = await xero.accountingApi.createContacts(tenantId, {
@@ -291,11 +301,14 @@ async function createXeroContact({
     console.log(`[xeroService] ✓ Xero Contact synced — contactId=${resultId}`);
     return resultId;
   } catch (err) {
-    const body = err.response?.body;
+    // xero-node can throw: Error objects, plain objects, or strings
+    const body = err?.response?.body ?? err?.body;
     if (body) {
       console.error("[xeroService] Xero API response body:", typeof body === "string" ? body : JSON.stringify(body));
     }
+    const statusCode = err?.response?.statusCode ?? err?.statusCode ?? err?.response?.status ?? err?.status;
     const detail =
+      (typeof err === "string" ? err : null) ||
       (typeof body === "object" && body !== null
         ? body?.Elements?.[0]?.ValidationErrors?.[0]?.Message ||
           body?.Detail ||
@@ -304,8 +317,8 @@ async function createXeroContact({
         : typeof body === "string"
         ? body
         : null) ||
-      err.message ||
-      `Xero API error (HTTP ${err.response?.statusCode ?? "unknown"})`;
+      err?.message ||
+      (statusCode ? `Xero API error (HTTP ${statusCode})` : "Xero API error — see server logs for details");
     console.error("[xeroService] Sync error:", detail);
     throw new Error(detail);
   }
