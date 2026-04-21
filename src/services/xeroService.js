@@ -74,8 +74,15 @@ function parseXeroError(err) {
   if (typeof err === "string") return err;
 
   const response = err.response;
-  const body = response?.data || response?.body || err.body;
+  let body = response?.data || response?.body || err.body;
   const statusCode = response?.statusCode || response?.status || err.statusCode || err.status;
+
+  // If body is a string, try to parse it (some SDK versions don't auto-parse errors)
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch (_) { /* ignore */ }
+  }
 
   let detail = null;
 
@@ -328,6 +335,27 @@ async function createXeroContact({
         });
         return retryResponse.body?.contacts?.[0]?.contactID;
       }
+
+      // Recovery: Conflict resolution for Duplicate Name (400 ValidationException)
+      // Message snippet: "is already assigned to another contact"
+      const errorDetail = parseXeroError(err);
+      if (status === 400 && errorDetail.toLowerCase().includes("already assigned to another contact")) {
+        console.log(`[xeroService] Duplicate name detected for "${name}". Searching for existing contact…`);
+        
+        // Search by name. Note: Xero filter syntax uses double equals and single quotes for strings
+        // We escape single quotes in the name to prevent injection/syntax errors
+        const safeName = name.replace(/'/g, "''");
+        const searchResponse = await xero.accountingApi.getContacts(tenantId, undefined, `Name=="${safeName}"`);
+        const existing = searchResponse.body?.contacts?.find(c => c.name === name);
+
+        if (existing) {
+          console.log(`[xeroService] ✓ Conflict resolved. Found existing contactId: ${existing.contactID}`);
+          return existing.contactID;
+        } else {
+          console.warn(`[xeroService] Conflict reported by Xero but search returned no match for "${name}"`);
+        }
+      }
+
       throw err;
     }
   };

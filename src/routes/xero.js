@@ -188,7 +188,7 @@ router.get("/sync-status/:mondayItemId", async (req, res) => {
         xeroProjectId: record.xeroProjectId,
         workOrderId: record.workOrderId,
         xeroStatus: record.xeroStatus,
-        xeroProjectUrl: `https://go.xero.com/projects/list`,
+        xeroProjectUrl: `https://go.xero.com/projects/detail/${record.xeroProjectId}`,
       });
     }
 
@@ -266,7 +266,7 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
     }
 
     if (!xeroContactId) {
-      throw new Error("Cannot sync to Xero: No customer linked to this Work Order, or customer sync failed.");
+      throw new Error("Cannot sync to Xero: Please link a customer in the Work Order overview first.");
     }
 
     const xeroProjectId = await createXeroProject({
