@@ -354,6 +354,7 @@ router.post("/monday/item-created", async (req, res, next) => {
             update: { xeroSyncStatus: "Failed", syncErrorMessage: err.message, lastSyncAt: new Date() },
             create: {
               id: String(pulseId),
+              name: cust?.name || "Unknown",
               xeroSyncStatus: "Failed",
               syncErrorMessage: err.message,
               lastSyncAt: new Date(),

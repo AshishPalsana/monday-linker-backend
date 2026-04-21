@@ -114,7 +114,7 @@ router.post("/upsert",
         try {
           await updateCustomerBillingDetails(pulseId, billingAddressStr, billingTerms);
           if (shouldSync) {
-            await updateCustomerXeroStatus(pulseId, "Pending");
+            await updateCustomerXeroStatus(pulseId, "Not Synced");
             await syncCustomerToXero(pulseId);
           }
         } catch (err) {

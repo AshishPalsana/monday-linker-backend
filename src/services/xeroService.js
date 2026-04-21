@@ -65,23 +65,29 @@ function buildXeroClient() {
 
 /**
  * Extracts a human-readable error message from Xero SDK error objects.
- * Handles both Accounting (v2.0) and Projects (v2.0) API structures.
- * 
- * v15.0 SDK typically uses err.response.data (axios) or err.response.body.
+ * xero-node v15 sometimes throws the entire HTTP response as a JSON *string*
+ * rather than a proper Error — this function handles both shapes.
  */
 function parseXeroError(err) {
   if (!err) return "Unknown error";
-  if (typeof err === "string") return err;
 
-  const response = err.response;
-  let body = response?.data || response?.body || err.body;
-  const statusCode = response?.statusCode || response?.status || err.statusCode || err.status;
-
-  // If body is a string, try to parse it (some SDK versions don't auto-parse errors)
-  if (typeof body === "string") {
+  // Normalize: if xero-node threw the response as a raw JSON string, parse it first
+  let normalized = err;
+  if (typeof err === "string") {
     try {
-      body = JSON.parse(body);
-    } catch (_) { /* ignore */ }
+      normalized = JSON.parse(err);
+    } catch (_) {
+      return err; // Plain non-JSON string — return as-is
+    }
+  }
+
+  const response = normalized?.response;
+  let body = response?.data || response?.body || normalized?.body;
+  const statusCode = response?.statusCode || response?.status
+    || normalized?.statusCode || normalized?.status;
+
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch (_) {}
   }
 
   let detail = null;
@@ -91,33 +97,27 @@ function parseXeroError(err) {
     const elements = body.Elements || body.elements;
     if (Array.isArray(elements) && elements[0]?.ValidationErrors) {
       detail = elements[0].ValidationErrors.map(ve => ve.Message).join("; ");
-    } 
-    else if (Array.isArray(elements) && elements[0]?.validationErrors) {
+    } else if (Array.isArray(elements) && elements[0]?.validationErrors) {
       detail = elements[0].validationErrors.map(ve => ve.message).join("; ");
     }
-    
-    // 2. Projects API / Other keys
+
+    // 2. Projects API / other top-level keys
     detail = detail || body.Detail || body.detail || body.Message || body.message || body.error;
 
-    // 3. Handle Xero "ModelState" errors (e.g. model.EstimateAmount)
+    // 3. ModelState errors (e.g. model.EstimateAmount)
     if (!detail && body.modelState) {
-      const ms = body.modelState;
-      detail = Object.values(ms).flat().join("; ");
+      detail = Object.values(body.modelState).flat().join("; ");
     }
 
-    // 4. Last resort for objects: JSON stringify
-    if (!detail) {
-      detail = JSON.stringify(body);
-    }
+    if (!detail) detail = JSON.stringify(body);
   }
 
-  // 4. Fallback to top-level error message
-  const finalMessage = detail || err.message || (statusCode ? `HTTP ${statusCode}` : "Xero API Error");
+  const finalMessage = detail
+    || (typeof normalized === "object" ? normalized?.message : null)
+    || (statusCode ? `HTTP ${statusCode}` : "Xero API Error");
 
   console.error(`[xeroService] Parsed Error Detail:`, finalMessage);
-  if (body) {
-    console.log(`[xeroService] Raw Error Body:`, JSON.stringify(body));
-  }
+  if (body) console.log(`[xeroService] Raw Error Body:`, JSON.stringify(body));
 
   return finalMessage;
 }
@@ -317,7 +317,6 @@ async function createXeroContact({
       });
       return response.body?.contacts?.[0]?.contactID;
     } catch (err) {
-      // Full diagnostic dump so we can see the exact shape xero-node throws
       console.error("[xeroService] createContacts threw — typeof:", typeof err, "| constructor:", err?.constructor?.name);
       try {
         console.error("[xeroService] createContacts error dump:", JSON.stringify(err, Object.getOwnPropertyNames(err ?? {})));
@@ -325,29 +324,56 @@ async function createXeroContact({
         console.error("[xeroService] createContacts error (not serialisable):", String(err));
       }
 
-      // Recovery: If contact ID exists but was deleted/not found in Xero (404)
-      const status = err?.response?.statusCode ?? err?.statusCode ?? err?.response?.status ?? err?.status;
+      // Normalize: xero-node v15 may throw the full response as a JSON string
+      let normalized = err;
+      if (typeof err === "string") {
+        try { normalized = JSON.parse(err); } catch (_) {}
+      }
+      const errResponse = normalized?.response;
+      let errBody = errResponse?.body || errResponse?.data || normalized?.body;
+      if (typeof errBody === "string") {
+        try { errBody = JSON.parse(errBody); } catch (_) {}
+      }
+      const status = errResponse?.statusCode || errResponse?.status
+        || normalized?.statusCode || normalized?.status
+        || err?.response?.statusCode || err?.statusCode || err?.response?.status || err?.status;
+
+      // Recovery: Contact deleted from Xero (404)
       if (xeroContactId && status === 404) {
         console.warn(`[xeroService] Contact ${xeroContactId} not found in Xero. Retrying as new creation.`);
         delete contact.contactID;
-        const retryResponse = await xero.accountingApi.createContacts(tenantId, {
-          contacts: [contact],
-        });
+        const retryResponse = await xero.accountingApi.createContacts(tenantId, { contacts: [contact] });
         return retryResponse.body?.contacts?.[0]?.contactID;
       }
 
-      // Recovery: Conflict resolution for Duplicate Name (400 ValidationException)
-      // Message snippet: "is already assigned to another contact"
       const errorDetail = parseXeroError(err);
+
+      // Recovery: Duplicate Account Number (400) — Xero includes the existing ContactID in Elements[0]
+      if (status === 400 && errorDetail.toLowerCase().includes("account number already exists")) {
+        const elements = Array.isArray(errBody?.Elements) ? errBody.Elements : [];
+        const existingContactId = elements[0]?.ContactID;
+        if (existingContactId) {
+          console.log(`[xeroService] ✓ Duplicate account number resolved → existing ContactID: ${existingContactId}`);
+          return existingContactId;
+        }
+        // Fallback: search by account number
+        if (accountNumber) {
+          console.log(`[xeroService] Searching for contact by account number "${accountNumber}"…`);
+          const searchResp = await xero.accountingApi.getContacts(tenantId, undefined, `AccountNumber=="${accountNumber}"`);
+          const found = searchResp.body?.contacts?.[0];
+          if (found?.contactID) {
+            console.log(`[xeroService] ✓ Found contact by account number: ${found.contactID}`);
+            return found.contactID;
+          }
+        }
+      }
+
+      // Recovery: Duplicate Contact Name (400)
       if (status === 400 && errorDetail.toLowerCase().includes("already assigned to another contact")) {
         console.log(`[xeroService] Duplicate name detected for "${name}". Searching for existing contact…`);
-        
-        // Search by name. Note: Xero filter syntax uses double equals and single quotes for strings
-        // We escape single quotes in the name to prevent injection/syntax errors
         const safeName = name.replace(/'/g, "''");
         const searchResponse = await xero.accountingApi.getContacts(tenantId, undefined, `Name=="${safeName}"`);
         const existing = searchResponse.body?.contacts?.find(c => c.name?.toLowerCase() === name.toLowerCase());
-
         if (existing) {
           console.log(`[xeroService] ✓ Conflict resolved. Found existing contactId: ${existing.contactID}`);
           return existing.contactID;
