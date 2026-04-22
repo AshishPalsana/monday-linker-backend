@@ -61,7 +61,7 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
         const rate        = parseFloat(rateCol?.text || 0);
         const totalCost   = parseFloat(totalCol?.text || 0) || parseFloat((quantity * rate).toFixed(2));
         const date        = dateCol?.text || new Date().toISOString().split("T")[0];
-        const description = descCol?.text || item.name || "Project Cost";
+        const description = item.name || descCol?.text || "Project Cost";
 
         try {
           const newXeroSyncId = await xero.syncMasterCostItemToXero({

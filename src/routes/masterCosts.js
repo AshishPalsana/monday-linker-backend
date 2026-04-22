@@ -33,7 +33,7 @@ async function getXeroProjectId(workOrderMondayId) {
  * Silently skips if Xero is not connected or the WO has no project.
  * Returns the encoded xeroSyncId ("TIME:uuid" or "TASK:uuid") or null.
  */
-async function attemptXeroSync({ workOrderMondayId, existingXeroSyncId, type, description, quantity, rate, totalCost, date }) {
+async function attemptXeroSync({ workOrderMondayId, existingXeroSyncId, type, name, description, quantity, rate, totalCost, date }) {
   const xeroProjectId = await getXeroProjectId(workOrderMondayId);
   if (!xeroProjectId) {
     console.log(`[masterCosts] Xero sync skipped — no Xero project for WO ${workOrderMondayId}`);
@@ -45,7 +45,7 @@ async function attemptXeroSync({ workOrderMondayId, existingXeroSyncId, type, de
       xeroProjectId,
       existingXeroSyncId: existingXeroSyncId || null,
       type,
-      description,
+      description: name || description,
       quantity,
       rate,
       totalCost,
@@ -117,6 +117,7 @@ router.post(
         workOrderMondayId: workOrderId,
         existingXeroSyncId: null,
         type,
+        name: created.name || name,
         description,
         quantity: qty,
         rate: rt,
@@ -214,10 +215,13 @@ router.patch(
         const effectiveTotalCost   = updates.totalCost   ?? parseFloat(currentItem?.column_values?.find(c => c.id === monday.COL.MASTER_COSTS.TOTAL_COST)?.text || 0);
         const effectiveDate        = updates.date        ?? currentItem?.column_values?.find(c => c.id === monday.COL.MASTER_COSTS.DATE)?.text;
 
+        const effectiveName = updates.name ?? currentItem?.name;
+
         const syncedId = await attemptXeroSync({
           workOrderMondayId: resolvedWorkOrderId,
           existingXeroSyncId,
           type: effectiveType,
+          name: effectiveName,
           description: effectiveDescription,
           quantity: effectiveQuantity,
           rate: effectiveRate,
