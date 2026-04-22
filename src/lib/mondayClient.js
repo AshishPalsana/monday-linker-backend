@@ -980,7 +980,7 @@ async function getMasterCosts(workOrderId) {
                 id
                 text
                 value
-                ... on BoardRelationValue { linked_item_ids }
+                ... on BoardRelationValue { linked_item_ids display_value }
               }
             }
           }
@@ -1041,7 +1041,7 @@ async function getMasterCosts(workOrderId) {
               "${MC.XERO_SYNC_ID}"
             ]) {
               id text value
-              ... on BoardRelationValue { linked_item_ids }
+              ... on BoardRelationValue { linked_item_ids display_value }
             }
           }
         }
