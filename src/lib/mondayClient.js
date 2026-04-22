@@ -1133,28 +1133,17 @@ async function updateMasterCostItem(mondayItemId, updates) {
   const MC = COL.MASTER_COSTS;
   const cv = {};
 
+  // Item name goes into change_multiple_column_values as the "name" key — Monday does not
+  // support updating the item title through change_simple_column_value.
+  if (updates.name !== undefined) cv.name = updates.name;
   if (updates.type !== undefined) cv[MC.TYPE] = { label: updates.type };
   if (updates.quantity !== undefined) cv[MC.QUANTITY] = updates.quantity;
   if (updates.rate !== undefined) cv[MC.RATE] = updates.rate;
   if (updates.totalCost !== undefined) cv[MC.TOTAL_COST] = updates.totalCost;
-  if (updates.description !== undefined) cv[MC.DESCRIPTION] = { text: updates.description };
+  if (updates.description !== undefined) cv[MC.DESCRIPTION] = updates.description;
   if (updates.date !== undefined) cv[MC.DATE] = { date: updates.date };
   if (updates.invoiceStatus !== undefined) cv[MC.INVOICE_STATUS] = { label: updates.invoiceStatus };
   if (updates.xeroSyncId !== undefined) cv[MC.XERO_SYNC_ID] = updates.xeroSyncId;
-
-  // Rename item if name changed
-  if (updates.name) {
-    await graphql(`
-      mutation {
-        change_simple_column_value(
-          board_id: ${BOARD.MASTER_COSTS},
-          item_id: ${mondayItemId},
-          column_id: "name",
-          value: ${JSON.stringify(updates.name)}
-        ) { id }
-      }
-    `);
-  }
 
   if (!Object.keys(cv).length) return;
 
