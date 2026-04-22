@@ -423,10 +423,62 @@ async function updateXeroProjectStatus(xeroProjectId, status) {
   }
 }
 
+/**
+ * Pushes a Labor cost to a Xero Project as a Time Entry.
+ */
+async function createProjectTimeEntry({ xeroProjectId, description, hours, date }) {
+  console.log(`[xeroService] createProjectTimeEntry — projectId=${xeroProjectId} hours=${hours}`);
+
+  const { xero, tenantId } = await getAuthenticatedClient();
+
+  try {
+    // 1. Get the first active Xero user to attribute the time to
+    const usersResponse = await xero.projectApi.getUsers(tenantId);
+    const xeroUserId = usersResponse.body?.items?.[0]?.userId;
+
+    if (!xeroUserId) throw new Error("No active users found in Xero Projects to attribute time to.");
+
+    await xero.projectApi.createTimeEntry(tenantId, xeroProjectId, {
+      userId: xeroUserId,
+      dateUtc: new Date(date),
+      duration: Math.round(hours * 60), // Xero expects minutes
+      description: description,
+    });
+    
+    console.log(`[xeroService] ✓ Time Entry created in Xero Project`);
+  } catch (err) {
+    const detail = parseXeroError(err);
+    throw new Error(`Xero createTimeEntry failed: ${detail}`);
+  }
+}
+
+/**
+ * Pushes a Part/Expense cost to a Xero Project as a Project Expense.
+ */
+async function createProjectExpense({ xeroProjectId, description, amount, date }) {
+  console.log(`[xeroService] createProjectExpense — projectId=${xeroProjectId} amount=${amount}`);
+
+  const { xero, tenantId } = await getAuthenticatedClient();
+
+  try {
+    await xero.projectApi.createChargeableItem(tenantId, xeroProjectId, {
+      name: description,
+      amount: amount,
+      type: "EXPENSE",
+    });
+    console.log(`[xeroService] ✓ Project Expense created in Xero`);
+  } catch (err) {
+    const detail = parseXeroError(err);
+    throw new Error(`Xero createChargeableItem failed: ${detail}`);
+  }
+}
+
 module.exports = {
   createXeroProject,
   updateXeroProjectStatus,
   createXeroContact,
+  createProjectTimeEntry,
+  createProjectExpense,
   getAuthenticatedClient,
   XERO_SCOPES,
   buildXeroClient,

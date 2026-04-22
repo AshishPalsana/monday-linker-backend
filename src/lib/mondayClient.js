@@ -28,6 +28,7 @@ const COL = {
     WORK_PERFORMED: "long_text_mm15kfzp",
     DESCRIPTION: "long_text_mm14ee7h",
     TECHNICIAN: "multiple_person_mm14sesj",
+    TOTAL_JOB_COST: "numeric_mm2n3zfq",
   },
   CUSTOMERS: {
     ACCOUNT_NUMBER: "text_mm0ryhr9",
@@ -51,7 +52,7 @@ const COL = {
     CLOCK_IN: "date_mm21zkpj",
     CLOCK_OUT: "date_mm2155gg",
     TASK_TYPE: "dropdown_mm21wscp",
-    WORK_ORDERS_REL: "board_relation_mm2cy69m",
+    WORK_ORDERS_REL: "board_relation_mm21aenv",
     TECHNICIANS: "multiple_person_mm21m56s",
     LOCATIONS_REL: "board_relation_mm21vtd1",
     EXPENSES_ADDED: "boolean_mm212dcy",
@@ -75,6 +76,7 @@ const COL = {
     TOTAL_COST: "numeric_mm25953b",
     DATE: "date_mm26snwa",
     INVOICE_STATUS: "color_mm26qn4h",
+    XERO_SYNC_ID: "text_mm2n27t6",
   },
   INVOICE_ITEMS: {
     WORK_ORDERS_REL: "board_relation_mm1ae4as",
@@ -768,11 +770,30 @@ module.exports = {
   updateLocationItem,
   getWorkOrderAssignedTechnicians,
   getActiveWorkOrders,
+  updateWorkOrderTotalCost,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
   WORK_ORDER_STATUS,
 };
+
+/**
+ * Updates the Total Job Cost on a Work Order item.
+ */
+async function updateWorkOrderTotalCost(workOrderId, total) {
+  if (!workOrderId) return;
+  const cv = { [COL.WORK_ORDERS.TOTAL_JOB_COST]: String(total) };
+
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.WORK_ORDERS},
+        item_id: ${workOrderId},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id }
+    }
+  `);
+}
 
 /**
  * Creates a new item on the Locations board.
@@ -994,7 +1015,8 @@ async function getMasterCosts(workOrderId) {
               "${MC.DESCRIPTION}",
               "${MC.DATE}",
               "${MC.INVOICE_STATUS}",
-              "${MC.WORK_ORDERS_REL}"
+              "${MC.WORK_ORDERS_REL}",
+              "${MC.XERO_SYNC_ID}"
             ]) { id text value }
           }
         }
@@ -1064,6 +1086,7 @@ async function updateMasterCostItem(mondayItemId, updates) {
   if (updates.description !== undefined) cv[MC.DESCRIPTION] = { text: updates.description };
   if (updates.date !== undefined) cv[MC.DATE] = { date: updates.date };
   if (updates.invoiceStatus !== undefined) cv[MC.INVOICE_STATUS] = { label: updates.invoiceStatus };
+  if (updates.xeroSyncId !== undefined) cv[MC.XERO_SYNC_ID] = updates.xeroSyncId;
 
   if (!Object.keys(cv).length) return;
 

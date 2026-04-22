@@ -14,6 +14,7 @@ const {
 } = require("../lib/mondayClient");
 const companyCam = require("../services/companyCamService");
 const xeroService = require("../services/xeroService");
+const { aggregateWorkOrderCosts } = require("../services/costAggregationService");
 
 /**
  * Resolve (or create) a Xero Contact for a given Monday customer pulse.
@@ -439,6 +440,7 @@ router.post("/monday/item-created", async (req, res, next) => {
     }
 
     // ── Locations board ─────────────────────────────────────────────────────
+    // ── Locations board ─────────────────────────────────────────────────────
     if (String(boardId) === String(BOARD.LOCATIONS)) {
       const locStatusCol = String(COL.LOCATIONS.STATUS);
       if (event.type === "change_column_value" && event.columnId !== locStatusCol) {
@@ -454,6 +456,46 @@ router.post("/monday/item-created", async (req, res, next) => {
         }
       });
       return res.status(200).send("OK");
+    }
+
+    // ── Master Costs board ──────────────────────────────────────────────────
+    if (String(boardId) === String(BOARD.MASTER_COSTS)) {
+      console.log(`[webhook] Processing Master Cost ${event.type === "create_pulse" ? "CREATE" : "UPDATE"}…`);
+      
+      res.status(200).send("OK");
+
+      setImmediate(async () => {
+        try {
+          // 1. Fetch current Master Cost item to get its linked Work Order
+          const result = await require("../lib/mondayClient").graphql(`
+            query {
+              items(ids: [${pulseId}]) {
+                column_values(ids: ["${COL.MASTER_COSTS.WORK_ORDERS_REL}"]) {
+                  value
+                }
+              }
+            }
+          `);
+
+          const item = result.items?.[0];
+          const relVal = item?.column_values?.[0]?.value;
+          
+          if (relVal) {
+            const parsed = JSON.parse(relVal);
+            const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
+            const workOrderId = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
+            
+            if (workOrderId) {
+              await aggregateWorkOrderCosts(String(workOrderId));
+            } else {
+              console.log(`[webhook] Master Cost ${pulseId} has no linked Work Order yet.`);
+            }
+          }
+        } catch (err) {
+          console.error("[webhook] Master Cost aggregation error:", err.message);
+        }
+      });
+      return;
     }
 
     console.log(`[webhook] Ignoring — event is for unmonitored board ${boardId}`);

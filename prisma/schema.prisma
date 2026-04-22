@@ -62,6 +62,7 @@ model TimeEntry {
   // Monday.com item ID — set after creating the item on the Time Entries board
   mondayItemId    String?
   masterCostItemId String?   // Linked ID on the Master Costs board
+  expensesAdded   Boolean     @default(false)
 
   // Timing
   clockIn         DateTime
@@ -237,6 +238,7 @@ model GlobalSettings {
   id                    String   @id @default("default")
   partsMarkup           Decimal  @default(1.35) @db.Decimal(4, 2)
   expenseMarkup         Decimal  @default(1.10) @db.Decimal(4, 2)
+  reportRecipientEmail  String?
   updatedAt             DateTime @updatedAt
 
   @@map("global_settings")
