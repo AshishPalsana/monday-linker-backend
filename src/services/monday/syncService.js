@@ -33,6 +33,7 @@ async function syncTimeEntryToCost(timeEntryId) {
       // Update existing
       console.log(`[syncService] Updating existing Master Cost ${entry.masterCostItemId} for TimeEntry ${timeEntryId}`);
       await monday.updateMasterCostItem(entry.masterCostItemId, {
+        name: `Labor: ${entry.technician.name}`,
         quantity,
         rate,
         totalCost,
@@ -45,6 +46,7 @@ async function syncTimeEntryToCost(timeEntryId) {
       const created = await monday.createMasterCostItem({
         workOrderId: entry.workOrderRef,
         workOrderLabel: entry.workOrderLabel || "",
+        itemName: `Labor: ${entry.technician.name}`,
         type,
         quantity,
         rate,
@@ -99,6 +101,7 @@ async function syncExpenseToCost(expenseId) {
       // Update existing
       console.log(`[syncService] Updating existing Master Cost ${expense.masterCostItemId} for Expense ${expenseId}`);
       await monday.updateMasterCostItem(expense.masterCostItemId, {
+        name: `${expense.type}: ${expense.timeEntry.technician.name}`,
         rate,
         totalCost,
         description,
@@ -110,6 +113,7 @@ async function syncExpenseToCost(expenseId) {
       const created = await monday.createMasterCostItem({
         workOrderId: workOrderRef,
         workOrderLabel: expense.timeEntry.workOrderLabel || "",
+        itemName: `${expense.type}: ${expense.timeEntry.technician.name}`,
         type,
         quantity,
         rate,
