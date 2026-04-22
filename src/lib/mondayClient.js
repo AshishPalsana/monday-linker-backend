@@ -213,11 +213,6 @@ async function createTimeEntryItem({
   };
   cv[COL.TIME_ENTRIES.TASK_TYPE] = { labels: [labelMap[entryType] || "Non-Job"] };
 
-  // Link to Work Order board item
-  if (entryType === "Job" && workOrderRef) {
-    cv[COL.TIME_ENTRIES.WORK_ORDERS_REL] = { item_ids: [parseInt(workOrderRef, 10)] };
-  }
-
   const result = await graphql(`
     mutation {
       create_item(
@@ -230,6 +225,20 @@ async function createTimeEntryItem({
   `);
 
   const newItemId = result.create_item.id;
+
+  // Board-relation columns must be set via change_column_value after item creation
+  if (entryType === "Job" && workOrderRef) {
+    await graphql(`
+      mutation {
+        change_column_value(
+          board_id: ${BOARD.TIME_ENTRIES},
+          item_id: ${newItemId},
+          column_id: "${COL.TIME_ENTRIES.WORK_ORDERS_REL}",
+          value: "${JSON.stringify({ item_ids: [parseInt(workOrderRef, 10)] }).replace(/"/g, '\\"')}"
+        ) { id }
+      }
+    `).catch(err => console.warn("[mondayClient] Could not link Work Order to Time Entry:", err.message));
+  }
 
   // Assign technician separately — people column IDs can differ from auth user IDs,
   // so we isolate this to avoid failing the whole item creation
@@ -256,7 +265,7 @@ async function createTimeEntryItem({
   return newItemId;
 }
 
-async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExpenses = false, narrative = "", jobLocation = "", workOrderRef = null }) {
+async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExpenses = false, narrative = "", jobLocation = "", jobLocationId = null, workOrderRef = null }) {
   if (!mondayItemId) return;
 
   const cv = {};
@@ -272,7 +281,7 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
     cv[COL.TIME_ENTRIES.EXPENSES_ADDED] = { checked: true };
   }
 
-  // 1. Update the Time Entry board
+  // 1. Update scalar columns on the Time Entry
   await graphql(`
     mutation {
       change_multiple_column_values(
@@ -283,7 +292,21 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
     }
   `);
 
-  // 2. If it's a Job, sync the narrative to the Work Order board
+  // 2. Link Location via board_relation (must be a separate mutation)
+  if (jobLocationId) {
+    await graphql(`
+      mutation {
+        change_column_value(
+          board_id: ${BOARD.TIME_ENTRIES},
+          item_id: ${mondayItemId},
+          column_id: "${COL.TIME_ENTRIES.LOCATIONS_REL}",
+          value: "${JSON.stringify({ item_ids: [parseInt(jobLocationId, 10)] }).replace(/"/g, '\\"')}"
+        ) { id }
+      }
+    `).catch(err => console.warn("[mondayClient] Could not link Location to Time Entry:", err.message));
+  }
+
+  // 3. If it's a Job, sync the narrative to the Work Order board
   if (workOrderRef && narrative) {
     try {
       await appendWorkOrderNarrative(workOrderRef, { text: narrative, location: jobLocation || null });
@@ -292,7 +315,7 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
     }
   }
 
-  // 3. Move to Completed group
+  // 4. Move to Completed group
   await graphql(`
     mutation {
       move_item_to_group(

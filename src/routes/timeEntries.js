@@ -337,7 +337,7 @@ router.patch(
         }
       }
 
-      const { narrative = "", jobLocation = "", expenses = [], markComplete = false } = req.body;
+      const { narrative = "", jobLocation = "", jobLocationId = null, expenses = [], markComplete = false } = req.body;
 
       const existingExpenses = await prisma.expense.findMany({
         where: { timeEntryId: entry.id }
@@ -403,7 +403,7 @@ router.patch(
                 timeEntryId: entry.id,
                 type: e.type,
                 amount: e.amount,
-                details: e.details ?? null,
+                details: e.details ?? e.description ?? null,
               }
             });
           }
@@ -427,6 +427,7 @@ router.patch(
               hasExpenses,
               narrative,
               jobLocation,
+              jobLocationId,
               workOrderRef: entry.workOrderRef,
             });
           }
