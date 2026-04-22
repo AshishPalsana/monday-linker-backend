@@ -27,6 +27,9 @@ const XERO_SCOPES = [
   "offline_access",
 ];
 
+// Prevents race conditions where multiple webhooks/routes sync the same pulse simultaneously
+const pulseSyncLocks = new Map();
+
 // Refresh the token if it expires within the next 5 minutes
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
@@ -599,8 +602,10 @@ async function updateProjectTask(xeroProjectId, taskId, { description, amount })
 /**
  * Unified sync function for a Master Cost item to a Xero Project.
  * Handles Create vs Update based on existingXeroSyncId.
+ * Includes locking to prevent duplicates from race conditions.
  */
 async function syncMasterCostItemToXero({
+  pulseId,
   xeroProjectId,
   existingXeroSyncId,
   type,
@@ -610,50 +615,61 @@ async function syncMasterCostItemToXero({
   totalCost,
   date,
 }) {
-  const isLabor = type === "Labor";
-  const hours = parseFloat(quantity) || 1;
-  const amount = parseFloat(totalCost) || parseFloat(quantity || 1) * parseFloat(rate || 0);
-
-  // 1. UPDATE flow
-  if (existingXeroSyncId && !existingXeroSyncId.startsWith("synced-")) {
-    const [idType, xeroId] = existingXeroSyncId.split(":");
-    
-    try {
-      if (idType === "TIME") {
-        // Safe update for Time: delete then recreate to ensure duration/date consistency
-        await deleteProjectTask(xeroProjectId, xeroId);
-        const newTaskId = await createProjectTimeEntry({
-          xeroProjectId, description, hours, rate, date
-        });
-        return `TIME:${newTaskId}`;
-      } else {
-        // Direct PATCH for Tasks/Expenses
-        await updateProjectTask(xeroProjectId, xeroId, { description, amount });
-        return existingXeroSyncId;
-      }
-    } catch (err) {
-      console.warn(`[xeroService] Update failed, falling back to creation:`, err.message);
-    }
+  // Prevent concurrent syncs for the same pulse (Race Condition protection)
+  if (pulseId && pulseSyncLocks.has(String(pulseId))) {
+    console.log(`[xeroService] Sync already in progress for pulse ${pulseId} — skipping concurrent request.`);
+    return null; 
   }
+  if (pulseId) pulseSyncLocks.set(String(pulseId), true);
 
-  // 2. CREATE flow
-  if (isLabor) {
-    const taskId = await createProjectTimeEntry({
-      xeroProjectId,
-      description: description || "Labor",
-      hours,
-      rate: parseFloat(rate) || 0,
-      date: date || new Date().toISOString().split("T")[0],
-    });
-    return taskId ? `TIME:${taskId}` : null;
-  } else {
-    const taskId = await createProjectExpense({
-      xeroProjectId,
-      description: description || type,
-      amount,
-      date: date || new Date().toISOString().split("T")[0],
-    });
-    return taskId ? `TASK:${taskId}` : null;
+  try {
+    const isLabor = type === "Labor";
+    const hours = parseFloat(quantity) || 1;
+    const amount = parseFloat(totalCost) || parseFloat(quantity || 1) * parseFloat(rate || 0);
+
+    // 1. UPDATE flow
+    if (existingXeroSyncId && !existingXeroSyncId.startsWith("synced-")) {
+      const [idType, xeroId] = existingXeroSyncId.split(":");
+      
+      try {
+        if (idType === "TIME") {
+          // Safe update for Time: delete then recreate to ensure duration/date consistency
+          await deleteProjectTask(xeroProjectId, xeroId);
+          const newTaskId = await createProjectTimeEntry({
+            xeroProjectId, description, hours, rate, date
+          });
+          return `TIME:${newTaskId}`;
+        } else {
+          // Direct PATCH for Tasks/Expenses
+          await updateProjectTask(xeroProjectId, xeroId, { description, amount });
+          return existingXeroSyncId;
+        }
+      } catch (err) {
+        console.warn(`[xeroService] Update failed, falling back to creation:`, err.message);
+      }
+    }
+
+    // 2. CREATE flow
+    if (isLabor) {
+      const taskId = await createProjectTimeEntry({
+        xeroProjectId,
+        description: description || "Labor",
+        hours,
+        rate: parseFloat(rate) || 0,
+        date: date || new Date().toISOString().split("T")[0],
+      });
+      return taskId ? `TIME:${taskId}` : null;
+    } else {
+      const taskId = await createProjectExpense({
+        xeroProjectId,
+        description: description || type,
+        amount,
+        date: date || new Date().toISOString().split("T")[0],
+      });
+      return taskId ? `TASK:${taskId}` : null;
+    }
+  } finally {
+    if (pulseId) pulseSyncLocks.delete(String(pulseId));
   }
 }
 

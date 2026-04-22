@@ -65,6 +65,7 @@ async function aggregateWorkOrderCosts(workOrderId) {
 
         try {
           const newXeroSyncId = await xero.syncMasterCostItemToXero({
+            pulseId: item.id,
             xeroProjectId: syncMapping.xeroProjectId,
             existingXeroSyncId: existingXeroId,
             type,

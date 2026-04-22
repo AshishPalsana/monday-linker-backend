@@ -33,7 +33,7 @@ async function getXeroProjectId(workOrderMondayId) {
  * Silently skips if Xero is not connected or the WO has no project.
  * Returns the encoded xeroSyncId ("TIME:uuid" or "TASK:uuid") or null.
  */
-async function attemptXeroSync({ workOrderMondayId, existingXeroSyncId, type, name, description, quantity, rate, totalCost, date }) {
+async function attemptXeroSync({ mondayItemId, workOrderMondayId, existingXeroSyncId, type, name, description, quantity, rate, totalCost, date }) {
   const xeroProjectId = await getXeroProjectId(workOrderMondayId);
   if (!xeroProjectId) {
     console.log(`[masterCosts] Xero sync skipped — no Xero project for WO ${workOrderMondayId}`);
@@ -42,6 +42,7 @@ async function attemptXeroSync({ workOrderMondayId, existingXeroSyncId, type, na
 
   try {
     const xeroSyncId = await syncMasterCostItemToXero({
+      pulseId: mondayItemId,
       xeroProjectId,
       existingXeroSyncId: existingXeroSyncId || null,
       type,
@@ -114,6 +115,7 @@ router.post(
 
       // 2. Trigger Xero sync immediately
       const xeroSyncId = await attemptXeroSync({
+        mondayItemId: created.id,
         workOrderMondayId: workOrderId,
         type,
         name,
@@ -218,6 +220,7 @@ router.patch(
         const effectiveName = updates.name ?? currentItem?.name;
 
         const syncedId = await attemptXeroSync({
+          mondayItemId,
           workOrderMondayId: resolvedWorkOrderId,
           existingXeroSyncId,
           type: effectiveType,
