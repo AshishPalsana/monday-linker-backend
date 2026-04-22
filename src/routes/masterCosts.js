@@ -112,9 +112,24 @@ router.post(
         mondayUserId: req.technician.mondayUserId || null,
       });
 
-      // Xero sync is handled by the create_pulse webhook (aggregateWorkOrderCosts).
-      // This avoids double-syncing since the webhook fires for every new item regardless
-      // of whether it was created from the app or directly in Monday.
+      // 2. Trigger Xero sync immediately
+      const xeroSyncId = await attemptXeroSync({
+        workOrderMondayId: workOrderId,
+        type,
+        name,
+        description,
+        quantity: qty,
+        rate: rt,
+        totalCost,
+        date: date || null,
+      });
+
+      // 3. Update the item in Monday with the Xero ID if sync was successful
+      if (xeroSyncId) {
+        await monday.updateMasterCostItem(created.id, { xeroSyncId }).catch((err) => {
+          console.warn(`[masterCosts] Failed to save xeroSyncId to Monday:`, err.message);
+        });
+      }
 
       res.status(201).json({ data: created });
     } catch (err) {

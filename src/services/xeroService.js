@@ -566,7 +566,7 @@ async function updateProjectTimeEntry(xeroProjectId, timeEntryId, { description,
   const durationMinutes = Math.round((parseFloat(hours) || 0) * 60);
   
   try {
-    await xero.projectApi.patchTimeEntry(tenantId, xeroProjectId, timeEntryId, {
+    await xero.projectApi.updateTimeEntry(tenantId, xeroProjectId, timeEntryId, {
       description,
       duration: durationMinutes,
       dateUtc: new Date(date),
@@ -574,7 +574,7 @@ async function updateProjectTimeEntry(xeroProjectId, timeEntryId, { description,
     console.log(`[xeroService] ✓ Time Entry updated — timeEntryId=${timeEntryId}`);
   } catch (err) {
     const detail = parseXeroError(err);
-    throw new Error(`Xero patchTimeEntry failed: ${detail}`);
+    throw new Error(`Xero updateTimeEntry failed: ${detail}`);
   }
 }
 
@@ -585,14 +585,14 @@ async function updateProjectTask(xeroProjectId, taskId, { description, amount })
   console.log(`[xeroService] updateProjectTask — projectId=${xeroProjectId} taskId=${taskId}`);
   const { xero, tenantId } = await getAuthenticatedClient();
   try {
-    await xero.projectApi.patchTask(tenantId, xeroProjectId, taskId, {
+    await xero.projectApi.updateTask(tenantId, xeroProjectId, taskId, {
       name: description,
       rate: { value: amount, currency: "USD" },
     });
     console.log(`[xeroService] ✓ Task updated — taskId=${taskId}`);
   } catch (err) {
     const detail = parseXeroError(err);
-    throw new Error(`Xero patchTask failed: ${detail}`);
+    throw new Error(`Xero updateTask failed: ${detail}`);
   }
 }
 
