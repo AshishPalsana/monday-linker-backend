@@ -57,6 +57,24 @@ async function aggregateWorkOrderCosts(workOrderId) {
           continue;
         }
 
+        // Re-fetch live xeroSyncId after acquiring the lock.
+        // The snapshot (costs) may be stale if another path wrote the xeroSyncId
+        // between when we fetched the cost list and now.
+        try {
+          const liveItem = await monday.getMasterCostItem(item.id);
+          const liveXeroCol = liveItem?.column_values?.find(cv => cv.id === monday.COL.MASTER_COSTS.XERO_SYNC_ID);
+          const liveXeroId = liveXeroCol?.text?.trim() || null;
+          if (liveXeroId) {
+            console.log(`[aggregation] Item ${item.id} already synced since snapshot — skipping.`);
+            releaseSyncLock(item.id);
+            continue;
+          }
+        } catch (fetchErr) {
+          console.warn(`[aggregation] Could not re-fetch item ${item.id}:`, fetchErr.message);
+          releaseSyncLock(item.id);
+          continue;
+        }
+
         const typeCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TYPE);
         const qtyCol   = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.QUANTITY);
         const totalCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TOTAL_COST);
