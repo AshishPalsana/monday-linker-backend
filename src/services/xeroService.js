@@ -427,8 +427,8 @@ async function updateXeroProjectStatus(xeroProjectId, status) {
  * Pushes a Labor cost to a Xero Project as a Time Entry.
  * Xero requires a taskId on every time entry — we create a TIME-type task first.
  */
-async function createProjectTimeEntry({ xeroProjectId, description, hours, date }) {
-  console.log(`[xeroService] createProjectTimeEntry — projectId=${xeroProjectId} hours=${hours}`);
+async function createProjectTimeEntry({ xeroProjectId, description, hours, rate, date }) {
+  console.log(`[xeroService] createProjectTimeEntry — projectId=${xeroProjectId} hours=${hours} rate=${rate}`);
 
   const durationMinutes = Math.round((parseFloat(hours) || 0) * 60);
   if (durationMinutes < 1) {
@@ -439,10 +439,11 @@ async function createProjectTimeEntry({ xeroProjectId, description, hours, date 
   const { xero, tenantId } = await getAuthenticatedClient();
 
   try {
-    // Step 1: create a TIME task to satisfy the required taskId field
+    // Step 1: create a TIME task to satisfy the required taskId field.
+    // The task rate drives what Xero shows as the cost (hours × rate).
     const taskResponse = await xero.projectApi.createTask(tenantId, xeroProjectId, {
       name: description || "Labor",
-      rate: { value: 0, currency: "USD" },
+      rate: { value: parseFloat(rate) || 0, currency: "USD" },
       chargeType: "TIME",
     });
     const taskId = taskResponse.body?.taskId;
@@ -587,6 +588,7 @@ async function syncMasterCostItemToXero({
       xeroProjectId,
       description: description || "Labor",
       hours,
+      rate: parseFloat(rate) || 0,
       date: date || new Date().toISOString().split("T")[0],
     });
     return timeEntryId ? `TIME:${timeEntryId}` : null;
