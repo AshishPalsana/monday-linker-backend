@@ -553,21 +553,30 @@ async function syncMasterCostItemToXero({
   date,
 }) {
   // Remove any previously synced entry first (delete-then-recreate for idempotency)
-  if (existingXeroSyncId) {
-    const separatorIdx = existingXeroSyncId.indexOf(":");
-    if (separatorIdx !== -1) {
-      const xeroType = existingXeroSyncId.slice(0, separatorIdx);
-      const xeroId = existingXeroSyncId.slice(separatorIdx + 1);
-      try {
+  if (existingXeroSyncId && !existingXeroSyncId.startsWith("synced-")) {
+    const colonIdx = existingXeroSyncId.indexOf(":");
+    try {
+      if (colonIdx !== -1) {
+        // New format: "TIME:uuid" or "TASK:uuid"
+        const xeroType = existingXeroSyncId.slice(0, colonIdx);
+        const xeroId   = existingXeroSyncId.slice(colonIdx + 1);
         if (xeroType === "TIME") {
           await deleteProjectTimeEntry(xeroProjectId, xeroId);
         } else if (xeroType === "TASK") {
           await deleteProjectTask(xeroProjectId, xeroId);
         }
-      } catch (err) {
-        // Log but don't block — the old entry may already be gone in Xero
-        console.warn(`[xeroService] Could not delete existing Xero entry ${existingXeroSyncId}:`, err.message);
+      } else {
+        // Legacy format: raw UUID stored by the old aggregation path.
+        // Use current type as best-effort hint for what kind of entry it is.
+        if (type === "Labor") {
+          await deleteProjectTimeEntry(xeroProjectId, existingXeroSyncId);
+        } else {
+          await deleteProjectTask(xeroProjectId, existingXeroSyncId);
+        }
       }
+    } catch (err) {
+      // Log but don't block — the old entry may already be gone in Xero
+      console.warn(`[xeroService] Could not delete existing Xero entry ${existingXeroSyncId}:`, err.message);
     }
   }
 
