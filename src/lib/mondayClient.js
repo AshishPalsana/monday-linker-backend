@@ -237,7 +237,7 @@ async function createTimeEntryItem({
           value: "${JSON.stringify({ item_ids: [parseInt(workOrderRef, 10)] }).replace(/"/g, '\\"')}"
         ) { id }
       }
-    `).catch(err => console.warn("[mondayClient] Could not link Work Order to Time Entry:", err.message));
+    `).catch(err => console.error("[mondayClient] Could not link Work Order to Time Entry at clock-in:", err.message));
   }
 
   // Assign technician separately — people column IDs can differ from auth user IDs,
@@ -292,7 +292,7 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
     }
   `);
 
-  // 2. Link Location via board_relation (must be a separate mutation)
+  // 2. Link board-relation columns (must be separate mutations from scalar column updates)
   if (jobLocationId) {
     await graphql(`
       mutation {
@@ -303,7 +303,20 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
           value: "${JSON.stringify({ item_ids: [parseInt(jobLocationId, 10)] }).replace(/"/g, '\\"')}"
         ) { id }
       }
-    `).catch(err => console.warn("[mondayClient] Could not link Location to Time Entry:", err.message));
+    `).catch(err => console.error("[mondayClient] Could not link Location to Time Entry:", err.message));
+  }
+
+  if (workOrderRef) {
+    await graphql(`
+      mutation {
+        change_column_value(
+          board_id: ${BOARD.TIME_ENTRIES},
+          item_id: ${mondayItemId},
+          column_id: "${COL.TIME_ENTRIES.WORK_ORDERS_REL}",
+          value: "${JSON.stringify({ item_ids: [parseInt(workOrderRef, 10)] }).replace(/"/g, '\\"')}"
+        ) { id }
+      }
+    `).catch(err => console.error("[mondayClient] Could not link Work Order to Time Entry:", err.message));
   }
 
   // 3. If it's a Job, sync the narrative to the Work Order board
