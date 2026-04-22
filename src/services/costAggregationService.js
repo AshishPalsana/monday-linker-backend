@@ -36,42 +36,46 @@ async function aggregateWorkOrderCosts(workOrderId) {
       
       for (const item of costs) {
         const xeroSyncCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.XERO_SYNC_ID);
-        if (xeroSyncCol?.text === "SYNCED" || xeroSyncCol?.text?.startsWith("xero-")) {
-          console.log(`[aggregation] Item ${item.id} already synced to Xero — skipping.`);
+        const existingXeroId = xeroSyncCol?.text?.trim();
+        if (existingXeroId && existingXeroId !== "") {
+          console.log(`[aggregation] Item ${item.id} already synced to Xero (id=${existingXeroId}) — skipping.`);
           continue;
         }
-        
-        const typeCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TYPE);
-        const qtyCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.QUANTITY);
-        const rateCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.RATE);
-        const totalCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TOTAL_COST);
-        const dateCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.DATE);
 
-        const type = typeCol?.text; // "Labor", "Parts", "Expense"
-        const hours = parseFloat(qtyCol?.text || 0);
-        const amount = parseFloat(totalCol?.text || 0);
-        const date = dateCol?.text || new Date().toISOString().split("T")[0];
+        const typeCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TYPE);
+        const qtyCol   = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.QUANTITY);
+        const totalCol = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TOTAL_COST);
+        const rateCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.RATE);
+        const dateCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.DATE);
+
+        const type        = typeCol?.text;  // "Labor", "Parts", "Expense"
+        const hours       = parseFloat(qtyCol?.text || 0);
+        const totalAmount = parseFloat(totalCol?.text || 0) || parseFloat(qtyCol?.text || 0) * parseFloat(rateCol?.text || 0);
+        const date        = dateCol?.text || new Date().toISOString().split("T")[0];
         const description = item.name || "Project Cost";
 
         try {
+          let xeroId = null;
           if (type === "Labor") {
-            await xero.createProjectTimeEntry({
+            xeroId = await xero.createProjectTimeEntry({
               xeroProjectId: syncMapping.xeroProjectId,
               description,
               hours,
-              date
+              date,
             });
           } else {
-            await xero.createProjectExpense({
+            xeroId = await xero.createProjectExpense({
               xeroProjectId: syncMapping.xeroProjectId,
               description,
-              amount,
-              date
+              amount: totalAmount,
+              date,
             });
           }
-          
-          // Mark as synced on Monday
-          await monday.updateMasterCostItem(item.id, { xeroSyncId: "SYNCED" });
+
+          // Write Xero ID back to Monday for idempotency — if API didn't return one, use a timestamp marker
+          const syncId = xeroId ? String(xeroId) : `synced-${Date.now()}`;
+          await monday.updateMasterCostItem(item.id, { xeroSyncId: syncId });
+          console.log(`[aggregation] ✓ Item ${item.id} synced to Xero — xeroId=${syncId}`);
         } catch (xeroErr) {
           console.error(`[aggregation] Xero sync failed for item ${item.id}:`, xeroErr.message);
         }

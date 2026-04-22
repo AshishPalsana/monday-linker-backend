@@ -771,6 +771,7 @@ module.exports = {
   getWorkOrderAssignedTechnicians,
   getActiveWorkOrders,
   updateWorkOrderTotalCost,
+  graphql,
   BOARD,
   COL,
   EXPENSE_TYPE_IDS,
@@ -973,8 +974,14 @@ async function getMasterCosts(workOrderId) {
                 "${MC.TOTAL_COST}",
                 "${MC.DESCRIPTION}",
                 "${MC.DATE}",
-                "${MC.INVOICE_STATUS}"
-              ]) { id text value }
+                "${MC.INVOICE_STATUS}",
+                "${MC.XERO_SYNC_ID}"
+              ]) {
+                id
+                text
+                value
+                ... on BoardRelationValue { linked_item_ids }
+              }
             }
           }
         }
@@ -983,31 +990,30 @@ async function getMasterCosts(workOrderId) {
 
     const items = result.boards?.[0]?.items_page?.items ?? [];
 
-    // Filter items that match the workOrderId in their WORK_ORDERS_REL column
+    // Filter items that match the workOrderId using linked_item_ids (board_relation columns
+    // return null for the generic `value` field; linked_item_ids is the reliable field)
     const filtered = items.filter(item => {
       const relCol = item.column_values.find(cv => cv.id === MC.WORK_ORDERS_REL);
-      if (!relCol?.value) return false;
-      try {
-        const parsed = JSON.parse(relCol.value);
-        const linkedIds = parsed.linkedPulseIds || parsed.item_ids || parsed.pulseIds || [];
-        
-        const isMatch = linkedIds.some(link => {
-          const id = String(link.linkedPulseId || link.id || link.pulseId || link);
-          const match = id === String(workOrderId);
-          if (!match) {
-             console.log(`[mondayClient] Comparing item ${item.id} ID ${id} vs target ${workOrderId}`);
-          }
-          return match;
-        });
+      if (!relCol) return false;
 
-        if (isMatch) {
-          console.log(`[mondayClient] ✓ Found Match! Item ${item.id} linked to WO ${workOrderId}`);
-        }
-        
-        return isMatch;
-      } catch (e) {
-        return false;
+      // Primary: use linked_item_ids (available via BoardRelationValue inline fragment)
+      if (Array.isArray(relCol.linked_item_ids)) {
+        return relCol.linked_item_ids.some(id => String(id) === String(workOrderId));
       }
+
+      // Fallback: parse the JSON value field (older API versions)
+      if (relCol.value) {
+        try {
+          const parsed = JSON.parse(relCol.value);
+          const linkedIds = parsed.linkedPulseIds || parsed.item_ids || parsed.pulseIds || [];
+          return linkedIds.some(link => {
+            const id = String(link.linkedPulseId || link.id || link.pulseId || link);
+            return id === String(workOrderId);
+          });
+        } catch (_) { return false; }
+      }
+
+      return false;
     });
 
     console.log(`[mondayClient] getMasterCosts: Found ${items.length} items total, ${filtered.length} matching WO ${workOrderId}`);

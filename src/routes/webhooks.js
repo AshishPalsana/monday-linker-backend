@@ -142,7 +142,8 @@ router.post("/monday/item-created", async (req, res, next) => {
 
     console.log(`[webhook] Event received — type=${event.type} boardId=${event.boardId} pulseId=${event.pulseId}`);
 
-    if (event.type !== "create_pulse" && event.type !== "change_column_value") {
+    const ALLOWED_TYPES = ["create_pulse", "change_column_value", "update_column_value"];
+    if (!ALLOWED_TYPES.includes(event.type)) {
       console.log(`[webhook] Ignoring event type "${event.type}"`);
       return res.status(200).send("Ignored");
     }
@@ -467,30 +468,35 @@ router.post("/monday/item-created", async (req, res, next) => {
 
       setImmediate(async () => {
         try {
-          // 1. Fetch current Master Cost item to get its linked Work Order
+          // Fetch the item's WO relation using linked_item_ids (value field is null for board_relation)
           const result = await graphql(`
             query {
               items(ids: [${pulseId}]) {
                 column_values(ids: ["${COL.MASTER_COSTS.WORK_ORDERS_REL}"]) {
+                  ... on BoardRelationValue { linked_item_ids }
                   value
                 }
               }
             }
           `);
 
-          const item = result.items?.[0];
-          const relVal = item?.column_values?.[0]?.value;
-          
-          if (relVal) {
-            const parsed = JSON.parse(relVal);
-            const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
-            const workOrderId = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
-            
-            if (workOrderId) {
-              await aggregateWorkOrderCosts(String(workOrderId));
-            } else {
-              console.log(`[webhook] Master Cost ${pulseId} has no linked Work Order yet.`);
-            }
+          const relCol = result.items?.[0]?.column_values?.[0];
+          let workOrderId = null;
+
+          if (Array.isArray(relCol?.linked_item_ids) && relCol.linked_item_ids.length > 0) {
+            workOrderId = relCol.linked_item_ids[0];
+          } else if (relCol?.value) {
+            try {
+              const parsed = JSON.parse(relCol.value);
+              const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
+              workOrderId = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
+            } catch (_) {}
+          }
+
+          if (workOrderId) {
+            await aggregateWorkOrderCosts(String(workOrderId));
+          } else {
+            console.log(`[webhook] Master Cost ${pulseId} has no linked Work Order yet — skipping aggregation.`);
           }
         } catch (err) {
           console.error("[webhook] Master Cost aggregation error:", err.message);

@@ -432,20 +432,20 @@ async function createProjectTimeEntry({ xeroProjectId, description, hours, date 
   const { xero, tenantId } = await getAuthenticatedClient();
 
   try {
-    // 1. Get the first active Xero user to attribute the time to
     const usersResponse = await xero.projectApi.getUsers(tenantId);
     const xeroUserId = usersResponse.body?.items?.[0]?.userId;
-
     if (!xeroUserId) throw new Error("No active users found in Xero Projects to attribute time to.");
 
-    await xero.projectApi.createTimeEntry(tenantId, xeroProjectId, {
+    const response = await xero.projectApi.createTimeEntry(tenantId, xeroProjectId, {
       userId: xeroUserId,
       dateUtc: new Date(date),
-      duration: Math.round(hours * 60), // Xero expects minutes
+      duration: Math.round(hours * 60),
       description: description,
     });
-    
-    console.log(`[xeroService] ✓ Time Entry created in Xero Project`);
+
+    const timeEntryId = response.body?.timeEntryId;
+    console.log(`[xeroService] ✓ Time Entry created — timeEntryId=${timeEntryId}`);
+    return timeEntryId || null;
   } catch (err) {
     const detail = parseXeroError(err);
     throw new Error(`Xero createTimeEntry failed: ${detail}`);
@@ -461,12 +461,14 @@ async function createProjectExpense({ xeroProjectId, description, amount, date }
   const { xero, tenantId } = await getAuthenticatedClient();
 
   try {
-    await xero.projectApi.createChargeableItem(tenantId, xeroProjectId, {
+    const response = await xero.projectApi.createChargeableItem(tenantId, xeroProjectId, {
       name: description,
-      amount: amount,
+      amount: { value: amount, currency: "USD" },
       type: "EXPENSE",
     });
-    console.log(`[xeroService] ✓ Project Expense created in Xero`);
+    const expenseId = response.body?.projectItemId || response.body?.chargeableItemId;
+    console.log(`[xeroService] ✓ Project Expense created — expenseId=${expenseId}`);
+    return expenseId || null;
   } catch (err) {
     const detail = parseXeroError(err);
     throw new Error(`Xero createChargeableItem failed: ${detail}`);
