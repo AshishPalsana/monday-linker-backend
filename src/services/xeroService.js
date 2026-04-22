@@ -425,27 +425,46 @@ async function updateXeroProjectStatus(xeroProjectId, status) {
 
 /**
  * Pushes a Labor cost to a Xero Project as a Time Entry.
+ * Xero requires a taskId on every time entry — we create a TIME-type task first.
  */
 async function createProjectTimeEntry({ xeroProjectId, description, hours, date }) {
   console.log(`[xeroService] createProjectTimeEntry — projectId=${xeroProjectId} hours=${hours}`);
 
+  const durationMinutes = Math.round((parseFloat(hours) || 0) * 60);
+  if (durationMinutes < 1) {
+    console.warn(`[xeroService] Skipping time entry — duration ${durationMinutes} min is below minimum (1 min).`);
+    return null;
+  }
+
   const { xero, tenantId } = await getAuthenticatedClient();
 
   try {
+    // Step 1: create a TIME task to satisfy the required taskId field
+    const taskResponse = await xero.projectApi.createTask(tenantId, xeroProjectId, {
+      name: description || "Labor",
+      rate: { value: 0, currency: "USD" },
+      chargeType: "TIME",
+    });
+    const taskId = taskResponse.body?.taskId;
+    if (!taskId) throw new Error("Xero createTask returned no taskId for time entry.");
+
+    // Step 2: get a project user to attribute the time to
     const usersResponse = await xero.projectApi.getProjectUsers(tenantId);
     const xeroUserId = usersResponse.body?.items?.[0]?.userId;
     if (!xeroUserId) throw new Error("No active users found in Xero Projects to attribute time to.");
 
+    // Step 3: create the time entry
     const response = await xero.projectApi.createTimeEntry(tenantId, xeroProjectId, {
       userId: xeroUserId,
+      taskId,
       dateUtc: new Date(date),
-      duration: Math.round(hours * 60),
-      description: description,
+      duration: durationMinutes,
+      description: description || "Labor",
     });
 
     const timeEntryId = response.body?.timeEntryId;
-    console.log(`[xeroService] ✓ Time Entry created — timeEntryId=${timeEntryId}`);
-    return timeEntryId || null;
+    console.log(`[xeroService] ✓ Time Entry created — timeEntryId=${timeEntryId} taskId=${taskId}`);
+    return timeEntryId || taskId;
   } catch (err) {
     const detail = parseXeroError(err);
     throw new Error(`Xero createTimeEntry failed: ${detail}`);
