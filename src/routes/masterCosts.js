@@ -5,7 +5,6 @@ const { validate } = require("../middleware/validate");
 const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
 const { syncMasterCostItemToXero, deleteXeroSyncEntry } = require("../services/xeroService");
-const { markItemAsSynced } = require("../services/costAggregationService");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -184,9 +183,6 @@ router.patch(
           updates.totalCost = parseFloat((q * r).toFixed(2));
         }
       }
-
-      // Mark before Monday update so cost-relevant column webhooks skip double-syncing
-      markItemAsSynced(mondayItemId);
 
       await monday.updateMasterCostItem(mondayItemId, updates);
 

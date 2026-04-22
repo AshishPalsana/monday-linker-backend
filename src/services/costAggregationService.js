@@ -2,40 +2,21 @@ const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
 const xero = require("./xeroService");
 
-// Items synced by the direct REST route (POST/PATCH) within this window are
-// skipped by the webhook aggregation to prevent double-syncing to Xero.
-const RECENTLY_SYNCED_TTL_MS = 60_000;
-const recentlySynced = new Map(); // itemId (string) → timestamp (ms)
-
-function markItemAsSynced(itemId) {
-  recentlySynced.set(String(itemId), Date.now());
-}
-
-function wasRecentlySynced(itemId) {
-  const ts = recentlySynced.get(String(itemId));
-  if (!ts) return false;
-  if (Date.now() - ts > RECENTLY_SYNCED_TTL_MS) {
-    recentlySynced.delete(String(itemId));
-    return false;
-  }
-  return true;
-}
-
 /**
  * Recalculates and updates the Total Job Cost for a Work Order
  * by summing all its linked items in the Master Costs board.
- * Also syncs individual costs to the Xero Project if linked.
+ * Also performs the initial Xero sync for items that have no XERO_SYNC_ID yet.
  *
- * @param {string} workOrderId       - Monday item ID of the Work Order
- * @param {object} [opts]
- * @param {string} [opts.forceResyncItemId] - Monday item ID of a specific cost item whose
- *   cost-relevant fields just changed; that item will be re-synced to Xero even if it
- *   already has an XERO_SYNC_ID (old entry is deleted first via syncMasterCostItemToXero).
+ * Xero UPDATES (edits) are handled exclusively by the PATCH route — not here.
+ * This prevents duplicate Xero entries on multi-instance deployments where
+ * in-memory state cannot be shared across server processes.
+ *
+ * @param {string} workOrderId - Monday item ID of the Work Order
  */
-async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null } = {}) {
+async function aggregateWorkOrderCosts(workOrderId) {
   if (!workOrderId) return;
 
-  console.log(`[aggregation] Processing costs for Work Order ${workOrderId}${forceResyncItemId ? ` (force-resync item ${forceResyncItemId})` : ""}...`);
+  console.log(`[aggregation] Processing costs for Work Order ${workOrderId}...`);
 
   try {
     const costs = await monday.getMasterCosts(workOrderId);
@@ -50,22 +31,21 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
     console.log(`[aggregation] New total for WO ${workOrderId}: $${total.toFixed(2)}`);
     await monday.updateWorkOrderTotalCost(workOrderId, total.toFixed(2));
 
-    // 2. Sync to Xero Project if linked
+    // 2. Initial Xero sync for items that have never been synced yet
     const syncMapping = await prisma.workOrderSync.findUnique({
       where: { mondayItemId: String(workOrderId) }
     });
 
     if (syncMapping?.xeroProjectId) {
-      console.log(`[aggregation] Syncing costs to Xero Project ${syncMapping.xeroProjectId}...`);
+      console.log(`[aggregation] Checking for un-synced items in Xero Project ${syncMapping.xeroProjectId}...`);
 
       for (const item of costs) {
         const xeroSyncCol    = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.XERO_SYNC_ID);
         const existingXeroId = xeroSyncCol?.text?.trim() || null;
-        const isForceResync     = forceResyncItemId && String(item.id) === String(forceResyncItemId);
-        const recentlyHandled   = isForceResync && wasRecentlySynced(String(item.id));
 
-        if (existingXeroId && (!isForceResync || recentlyHandled)) {
-          console.log(`[aggregation] Item ${item.id} already synced to Xero (id=${existingXeroId})${recentlyHandled ? " — recently handled by direct route" : ""} — skipping.`);
+        // Skip items already synced — updates go through the PATCH route only
+        if (existingXeroId) {
+          console.log(`[aggregation] Item ${item.id} already synced (id=${existingXeroId}) — skipping.`);
           continue;
         }
 
@@ -76,7 +56,7 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
         const dateCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.DATE);
         const descCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.DESCRIPTION);
 
-        const type        = typeCol?.text;  // "Labor", "Parts", "Expense"
+        const type        = typeCol?.text;
         const quantity    = parseFloat(qtyCol?.text || 0);
         const rate        = parseFloat(rateCol?.text || 0);
         const totalCost   = parseFloat(totalCol?.text || 0) || parseFloat((quantity * rate).toFixed(2));
@@ -86,7 +66,7 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
         try {
           const newXeroSyncId = await xero.syncMasterCostItemToXero({
             xeroProjectId: syncMapping.xeroProjectId,
-            existingXeroSyncId: existingXeroId,
+            existingXeroSyncId: null,
             type,
             description,
             quantity,
@@ -96,10 +76,8 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
           });
 
           const syncId = newXeroSyncId || `synced-${Date.now()}`;
-          if (syncId !== existingXeroId) {
-            await monday.updateMasterCostItem(item.id, { xeroSyncId: syncId });
-          }
-          console.log(`[aggregation] ✓ Item ${item.id} synced to Xero — xeroSyncId=${syncId}`);
+          await monday.updateMasterCostItem(item.id, { xeroSyncId: syncId });
+          console.log(`[aggregation] ✓ Item ${item.id} initial sync to Xero — xeroSyncId=${syncId}`);
         } catch (xeroErr) {
           console.error(`[aggregation] Xero sync failed for item ${item.id}:`, xeroErr.message);
         }
@@ -115,5 +93,4 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
 
 module.exports = {
   aggregateWorkOrderCosts,
-  markItemAsSynced,
 };

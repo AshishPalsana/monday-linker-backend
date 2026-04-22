@@ -518,12 +518,11 @@ router.post("/monday/item-created", async (req, res, next) => {
           }
 
           if (workOrderId) {
-            // For cost-relevant column changes: pass forceResyncItemId so the aggregation
-            // re-syncs this item in Xero. The aggregation will skip it automatically if
-            // the change came from our own PATCH/POST route (markItemAsSynced guard).
-            await aggregateWorkOrderCosts(String(workOrderId), {
-              forceResyncItemId: isCostRelevantChange ? String(pulseId) : null,
-            });
+            // The webhook only handles: (1) total cost aggregation, (2) initial Xero sync
+            // for items with no XERO_SYNC_ID yet. All Xero updates go through the PATCH
+            // route exclusively — this prevents duplicates on multi-instance deployments
+            // where in-memory state cannot be shared across processes.
+            await aggregateWorkOrderCosts(String(workOrderId));
           } else {
             console.log(`[webhook] Master Cost ${pulseId} has no linked Work Order yet — skipping aggregation.`);
           }
