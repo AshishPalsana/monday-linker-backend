@@ -533,6 +533,11 @@ async function deleteProjectTask(xeroProjectId, taskId) {
  * and any associated time entries (prevents orphaned ghost tasks in Xero).
  * For legacy raw UUIDs (no colon prefix), tries task deletion then time entry deletion.
  */
+/**
+ * Deletes a Xero Project entry by its encoded XERO_SYNC_ID.
+ * Both TIME and TASK entries store a taskId — deleting the task removes it
+ * and any associated time entries (prevents orphaned ghost tasks in Xero).
+ */
 async function deleteXeroSyncEntry(xeroProjectId, xeroSyncId) {
   if (!xeroSyncId || xeroSyncId.startsWith("synced-")) return;
   const colonIdx = xeroSyncId.indexOf(":");
@@ -545,28 +550,56 @@ async function deleteXeroSyncEntry(xeroProjectId, xeroSyncId) {
     try {
       await deleteProjectTask(xeroProjectId, xeroSyncId);
     } catch (_) {
-      await deleteProjectTimeEntry(xeroProjectId, xeroSyncId);
+      try {
+        await deleteProjectTimeEntry(xeroProjectId, xeroSyncId);
+      } catch (__) {}
     }
   }
 }
 
 /**
+ * Updates a Time Entry in a Xero Project.
+ */
+async function updateProjectTimeEntry(xeroProjectId, timeEntryId, { description, hours, rate, date }) {
+  console.log(`[xeroService] updateProjectTimeEntry — projectId=${xeroProjectId} timeEntryId=${timeEntryId}`);
+  const { xero, tenantId } = await getAuthenticatedClient();
+  const durationMinutes = Math.round((parseFloat(hours) || 0) * 60);
+  
+  try {
+    // Note: We don't update the taskId here to avoid orphans.
+    await xero.projectApi.patchTimeEntry(tenantId, xeroProjectId, timeEntryId, {
+      description,
+      duration: durationMinutes,
+      dateUtc: new Date(date),
+    });
+    console.log(`[xeroService] ✓ Time Entry updated — timeEntryId=${timeEntryId}`);
+  } catch (err) {
+    const detail = parseXeroError(err);
+    throw new Error(`Xero patchTimeEntry failed: ${detail}`);
+  }
+}
+
+/**
+ * Updates a Task (fixed expense) in a Xero Project.
+ */
+async function updateProjectTask(xeroProjectId, taskId, { description, amount }) {
+  console.log(`[xeroService] updateProjectTask — projectId=${xeroProjectId} taskId=${taskId}`);
+  const { xero, tenantId } = await getAuthenticatedClient();
+  try {
+    await xero.projectApi.patchTask(tenantId, xeroProjectId, taskId, {
+      name: description,
+      rate: { value: amount, currency: "USD" },
+    });
+    console.log(`[xeroService] ✓ Task updated — taskId=${taskId}`);
+  } catch (err) {
+    const detail = parseXeroError(err);
+    throw new Error(`Xero patchTask failed: ${detail}`);
+  }
+}
+
+/**
  * Unified sync function for a Master Cost item to a Xero Project.
- *
- * Encodes the Xero ID as "TIME:<taskId>" for labor or "TASK:<taskId>"
- * for parts/expenses. Both store the Xero taskId so the whole task
- * (and its time entries) can be deleted cleanly on update.
- *
- * @param {object} params
- * @param {string} params.xeroProjectId    - UUID of the Xero Project
- * @param {string|null} params.existingXeroSyncId - Previous encoded sync ID (e.g. "TIME:uuid" or "TASK:uuid")
- * @param {string} params.type             - "Labor" | "Parts" | "Expense"
- * @param {string} params.description      - Human-readable description
- * @param {number} params.quantity         - Hours (Labor) or units (Parts/Expense)
- * @param {number} params.rate             - Hourly rate or unit price
- * @param {number} params.totalCost        - Pre-calculated total
- * @param {string} params.date             - YYYY-MM-DD
- * @returns {string|null} Encoded Xero sync ID ("TIME:uuid" or "TASK:uuid")
+ * Handles Create vs Update based on existingXeroSyncId.
  */
 async function syncMasterCostItemToXero({
   xeroProjectId,
@@ -578,31 +611,45 @@ async function syncMasterCostItemToXero({
   totalCost,
   date,
 }) {
-  // Remove any previously synced entry first (delete-then-recreate for idempotency).
-  // Both TIME and TASK entries are stored as taskIds — deleting the task removes everything.
+  const isLabor = type === "Labor";
+  const hours = parseFloat(quantity) || 1;
+  const amount = parseFloat(totalCost) || parseFloat(quantity || 1) * parseFloat(rate || 0);
+
+  // 1. UPDATE flow
   if (existingXeroSyncId && !existingXeroSyncId.startsWith("synced-")) {
+    const [idType, xeroId] = existingXeroSyncId.split(":");
+    
     try {
-      await deleteXeroSyncEntry(xeroProjectId, existingXeroSyncId);
+      if (idType === "TIME") {
+        // Find the actual timeEntryId. In our "TIME:taskId" format, we store the taskId.
+        // For updates, Xero Projects is tricky—it's safer to delete-and-recreate ONLY for Time 
+        // because patching duration across different tasks is restricted.
+        await deleteProjectTask(xeroProjectId, xeroId);
+        const newTaskId = await createProjectTimeEntry({
+          xeroProjectId, description, hours, rate, date
+        });
+        return `TIME:${newTaskId}`;
+      } else {
+        await updateProjectTask(xeroProjectId, xeroId, { description, amount });
+        return existingXeroSyncId;
+      }
     } catch (err) {
-      // Log but don't block — the old entry may already be gone in Xero
-      console.warn(`[xeroService] Could not delete existing Xero entry ${existingXeroSyncId}:`, err.message);
+      console.warn(`[xeroService] Update failed, falling back to creation:`, err.message);
+      // Fall through to CREATE if update fails (e.g. record deleted in Xero)
     }
   }
 
-  // Create fresh entry based on type
-  if (type === "Labor") {
-    const hours = parseFloat(quantity) || 1;
-    const timeEntryId = await createProjectTimeEntry({
+  // 2. CREATE flow
+  if (isLabor) {
+    const taskId = await createProjectTimeEntry({
       xeroProjectId,
       description: description || "Labor",
       hours,
       rate: parseFloat(rate) || 0,
       date: date || new Date().toISOString().split("T")[0],
     });
-    return timeEntryId ? `TIME:${timeEntryId}` : null;
+    return taskId ? `TIME:${taskId}` : null;
   } else {
-    // Parts or Expense → fixed-rate task
-    const amount = parseFloat(totalCost) || parseFloat(quantity || 1) * parseFloat(rate || 0);
     const taskId = await createProjectExpense({
       xeroProjectId,
       description: description || type,
