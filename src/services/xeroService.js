@@ -494,12 +494,115 @@ async function createProjectExpense({ xeroProjectId, description, amount, date }
   }
 }
 
+/**
+ * Deletes a Time Entry from a Xero Project.
+ */
+async function deleteProjectTimeEntry(xeroProjectId, timeEntryId) {
+  console.log(`[xeroService] deleteProjectTimeEntry — projectId=${xeroProjectId} timeEntryId=${timeEntryId}`);
+  const { xero, tenantId } = await getAuthenticatedClient();
+  try {
+    await xero.projectApi.deleteTimeEntry(tenantId, xeroProjectId, timeEntryId);
+    console.log(`[xeroService] ✓ Time Entry deleted — timeEntryId=${timeEntryId}`);
+  } catch (err) {
+    const detail = parseXeroError(err);
+    throw new Error(`Xero deleteTimeEntry failed: ${detail}`);
+  }
+}
+
+/**
+ * Deletes a Task (fixed expense) from a Xero Project.
+ */
+async function deleteProjectTask(xeroProjectId, taskId) {
+  console.log(`[xeroService] deleteProjectTask — projectId=${xeroProjectId} taskId=${taskId}`);
+  const { xero, tenantId } = await getAuthenticatedClient();
+  try {
+    await xero.projectApi.deleteTask(tenantId, xeroProjectId, taskId);
+    console.log(`[xeroService] ✓ Task deleted — taskId=${taskId}`);
+  } catch (err) {
+    const detail = parseXeroError(err);
+    throw new Error(`Xero deleteTask failed: ${detail}`);
+  }
+}
+
+/**
+ * Unified sync function for a Master Cost item to a Xero Project.
+ *
+ * Encodes the Xero ID as "TIME:<uuid>" for labor (time entries) or
+ * "TASK:<uuid>" for parts/expenses (fixed tasks) so we know how to
+ * delete/update it on future edits.
+ *
+ * @param {object} params
+ * @param {string} params.xeroProjectId    - UUID of the Xero Project
+ * @param {string|null} params.existingXeroSyncId - Previous encoded sync ID (e.g. "TIME:uuid" or "TASK:uuid")
+ * @param {string} params.type             - "Labor" | "Parts" | "Expense"
+ * @param {string} params.description      - Human-readable description
+ * @param {number} params.quantity         - Hours (Labor) or units (Parts/Expense)
+ * @param {number} params.rate             - Hourly rate or unit price
+ * @param {number} params.totalCost        - Pre-calculated total
+ * @param {string} params.date             - YYYY-MM-DD
+ * @returns {string|null} Encoded Xero sync ID ("TIME:uuid" or "TASK:uuid")
+ */
+async function syncMasterCostItemToXero({
+  xeroProjectId,
+  existingXeroSyncId,
+  type,
+  description,
+  quantity,
+  rate,
+  totalCost,
+  date,
+}) {
+  // Remove any previously synced entry first (delete-then-recreate for idempotency)
+  if (existingXeroSyncId) {
+    const separatorIdx = existingXeroSyncId.indexOf(":");
+    if (separatorIdx !== -1) {
+      const xeroType = existingXeroSyncId.slice(0, separatorIdx);
+      const xeroId = existingXeroSyncId.slice(separatorIdx + 1);
+      try {
+        if (xeroType === "TIME") {
+          await deleteProjectTimeEntry(xeroProjectId, xeroId);
+        } else if (xeroType === "TASK") {
+          await deleteProjectTask(xeroProjectId, xeroId);
+        }
+      } catch (err) {
+        // Log but don't block — the old entry may already be gone in Xero
+        console.warn(`[xeroService] Could not delete existing Xero entry ${existingXeroSyncId}:`, err.message);
+      }
+    }
+  }
+
+  // Create fresh entry based on type
+  if (type === "Labor") {
+    const hours = parseFloat(quantity) || 1;
+    const timeEntryId = await createProjectTimeEntry({
+      xeroProjectId,
+      description: description || "Labor",
+      hours,
+      date: date || new Date().toISOString().split("T")[0],
+    });
+    return timeEntryId ? `TIME:${timeEntryId}` : null;
+  } else {
+    // Parts or Expense → fixed-rate task
+    const amount = parseFloat(totalCost) || parseFloat(quantity || 1) * parseFloat(rate || 0);
+    const taskId = await createProjectExpense({
+      xeroProjectId,
+      description: description || type,
+      amount,
+      date: date || new Date().toISOString().split("T")[0],
+    });
+    return taskId ? `TASK:${taskId}` : null;
+  }
+}
+
 module.exports = {
   createXeroProject,
   updateXeroProjectStatus,
   createXeroContact,
   createProjectTimeEntry,
   createProjectExpense,
+  deleteProjectTimeEntry,
+  deleteProjectTask,
+  syncMasterCostItemToXero,
   getAuthenticatedClient,
   XERO_SCOPES,
   buildXeroClient,

@@ -758,6 +758,7 @@ module.exports = {
   getAllLocations,
   getLocationsBoardData,
   getMasterCosts,
+  getMasterCostItem,
   createMasterCostItem,
   updateMasterCostItem,
   deleteMasterCostItem,
@@ -1054,7 +1055,35 @@ async function getMasterCosts(workOrderId) {
 /**
  * Creates a new item on the Master Costs board.
  */
-async function createMasterCostItem({ workOrderId, workOrderLabel, type, quantity, rate, totalCost, description, date, mondayUserId }) {
+async function getMasterCostItem(mondayItemId) {
+  const MC = COL.MASTER_COSTS;
+  const result = await graphql(`
+    query {
+      items(ids: [${mondayItemId}]) {
+        id
+        name
+        group { id title }
+        column_values(ids: [
+          "${MC.WORK_ORDERS_REL}",
+          "${MC.TYPE}",
+          "${MC.QUANTITY}",
+          "${MC.RATE}",
+          "${MC.TOTAL_COST}",
+          "${MC.DESCRIPTION}",
+          "${MC.DATE}",
+          "${MC.INVOICE_STATUS}",
+          "${MC.XERO_SYNC_ID}"
+        ]) {
+          id text value
+          ... on BoardRelationValue { linked_item_ids }
+        }
+      }
+    }
+  `);
+  return result.items?.[0] || null;
+}
+
+async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, quantity, rate, totalCost, description, date, mondayUserId }) {
   const MC = COL.MASTER_COSTS;
   const cv = {};
 
@@ -1065,7 +1094,7 @@ async function createMasterCostItem({ workOrderId, workOrderLabel, type, quantit
   if (description) cv[MC.DESCRIPTION] = { text: description };
   if (date) cv[MC.DATE] = { date };
 
-  const itemName = `${type} — ${description || workOrderLabel || ""}`.slice(0, 100);
+  const itemName = (name || `${type} — ${description || workOrderLabel || ""}`).slice(0, 100);
 
   const result = await graphql(`
     mutation {
@@ -1112,6 +1141,20 @@ async function updateMasterCostItem(mondayItemId, updates) {
   if (updates.date !== undefined) cv[MC.DATE] = { date: updates.date };
   if (updates.invoiceStatus !== undefined) cv[MC.INVOICE_STATUS] = { label: updates.invoiceStatus };
   if (updates.xeroSyncId !== undefined) cv[MC.XERO_SYNC_ID] = updates.xeroSyncId;
+
+  // Rename item if name changed
+  if (updates.name) {
+    await graphql(`
+      mutation {
+        change_simple_column_value(
+          board_id: ${BOARD.MASTER_COSTS},
+          item_id: ${mondayItemId},
+          column_id: "name",
+          value: ${JSON.stringify(updates.name)}
+        ) { id }
+      }
+    `);
+  }
 
   if (!Object.keys(cv).length) return;
 
