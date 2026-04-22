@@ -1023,6 +1023,7 @@ async function getMasterCosts(workOrderId) {
             name
             created_at
             column_values(ids: [
+              "${MC.WORK_ORDERS_REL}",
               "${MC.TYPE}",
               "${MC.QUANTITY}",
               "${MC.RATE}",
