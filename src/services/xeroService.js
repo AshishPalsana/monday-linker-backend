@@ -544,33 +544,15 @@ async function deleteProjectTask(xeroProjectId, taskId) {
 }
 
 /**
- * Deletes a Xero Project entry by its encoded XERO_SYNC_ID.
- * Both TIME and TASK entries store a taskId — deleting the task removes it
- * and any associated time entries (prevents orphaned ghost tasks in Xero).
- * For legacy raw UUIDs (no colon prefix), tries task deletion then time entry deletion.
- */
-/**
- * Deletes a Xero Project entry by its encoded XERO_SYNC_ID.
- * Both TIME and TASK entries store a taskId — deleting the task removes it
- * and any associated time entries (prevents orphaned ghost tasks in Xero).
+ * Deletes a Xero Project entry by its XERO_SYNC_ID.
+ * Both Labor (TIME task) and Parts/Expense (FIXED task) entries store a taskId.
+ * Accepts bare UUIDs (new format) or legacy "TIME:uuid"/"TASK:uuid" prefixed values.
  */
 async function deleteXeroSyncEntry(xeroProjectId, xeroSyncId) {
   if (!xeroSyncId || xeroSyncId.startsWith("synced-")) return;
-  const colonIdx = xeroSyncId.indexOf(":");
-  if (colonIdx !== -1) {
-    // New format: "TIME:taskId" or "TASK:taskId" — always delete the task
-    const xeroId = xeroSyncId.slice(colonIdx + 1);
-    await deleteProjectTask(xeroProjectId, xeroId);
-  } else {
-    // Legacy raw UUID — unknown type, try task first then time entry
-    try {
-      await deleteProjectTask(xeroProjectId, xeroSyncId);
-    } catch (_) {
-      try {
-        await deleteProjectTimeEntry(xeroProjectId, xeroSyncId);
-      } catch (__) {}
-    }
-  }
+  // Strip legacy prefix if present (e.g. "TIME:uuid" → "uuid")
+  const taskId = xeroSyncId.includes(":") ? xeroSyncId.split(":")[1] : xeroSyncId;
+  await deleteProjectTask(xeroProjectId, taskId);
 }
 
 /**
@@ -631,29 +613,32 @@ async function syncMasterCostItemToXero({
   const hours = parseFloat(quantity) || 1;
   const amount = parseFloat(totalCost) || parseFloat(quantity || 1) * parseFloat(rate || 0);
 
-  // 1. UPDATE flow
-  if (existingXeroSyncId && !existingXeroSyncId.startsWith("synced-")) {
-    const [idType, xeroId] = existingXeroSyncId.split(":");
+  // Strip legacy "TIME:"/"TASK:" prefix from stored value if present
+  const existingTaskId = existingXeroSyncId?.includes(":")
+    ? existingXeroSyncId.split(":")[1]
+    : existingXeroSyncId;
 
+  // 1. UPDATE flow — route by `type`, not stored prefix
+  if (existingTaskId && !existingTaskId.startsWith("synced-")) {
     try {
-      if (idType === "TIME") {
-        // Safe update for Time: delete then recreate to ensure duration/date consistency
-        await deleteProjectTask(xeroProjectId, xeroId);
+      if (isLabor) {
+        // Safe update for Labor: delete task (cascades time entries) then recreate
+        await deleteProjectTask(xeroProjectId, existingTaskId);
         const newTaskId = await createProjectTimeEntry({
           xeroProjectId, description, hours, rate, date
         });
-        return `TIME:${newTaskId}`;
+        return newTaskId || null;
       } else {
-        // Direct PATCH for Tasks/Expenses
-        await updateProjectTask(xeroProjectId, xeroId, { description, amount });
-        return existingXeroSyncId;
+        // Direct update for Parts/Expense
+        await updateProjectTask(xeroProjectId, existingTaskId, { description, amount });
+        return existingTaskId;
       }
     } catch (err) {
       console.warn(`[xeroService] Update failed, falling back to creation:`, err.message);
     }
   }
 
-  // 2. CREATE flow
+  // 2. CREATE flow — return bare UUID (no prefix)
   if (isLabor) {
     const taskId = await createProjectTimeEntry({
       xeroProjectId,
@@ -662,7 +647,7 @@ async function syncMasterCostItemToXero({
       rate: parseFloat(rate) || 0,
       date: date || new Date().toISOString().split("T")[0],
     });
-    return taskId ? `TIME:${taskId}` : null;
+    return taskId || null;
   } else {
     const taskId = await createProjectExpense({
       xeroProjectId,
@@ -670,7 +655,7 @@ async function syncMasterCostItemToXero({
       amount,
       date: date || new Date().toISOString().split("T")[0],
     });
-    return taskId ? `TASK:${taskId}` : null;
+    return taskId || null;
   }
 }
 
