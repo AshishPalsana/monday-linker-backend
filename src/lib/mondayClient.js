@@ -984,19 +984,30 @@ async function getMasterCosts(workOrderId) {
     const items = result.boards?.[0]?.items_page?.items ?? [];
 
     // Filter items that match the workOrderId in their WORK_ORDERS_REL column
-    return items.filter(item => {
+    const filtered = items.filter(item => {
       const relCol = item.column_values.find(cv => cv.id === MC.WORK_ORDERS_REL);
       if (!relCol?.value) return false;
       try {
         const parsed = JSON.parse(relCol.value);
-        const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
-        return linkedIds.some(link =>
-          String(link.linkedPulseId || link) === String(workOrderId)
-        );
+        const linkedIds = parsed.linkedPulseIds || parsed.item_ids || parsed.pulseIds || [];
+        
+        const isMatch = linkedIds.some(link => {
+          const id = String(link.linkedPulseId || link.id || link.pulseId || link);
+          return id === String(workOrderId);
+        });
+
+        if (isMatch) {
+          console.log(`[mondayClient] ✓ Found Match! Item ${item.id} linked to WO ${workOrderId}`);
+        }
+        
+        return isMatch;
       } catch (e) {
         return false;
       }
     });
+
+    console.log(`[mondayClient] getMasterCosts: Found ${items.length} items total, ${filtered.length} matching WO ${workOrderId}`);
+    return filtered;
   }
 
   const result = await graphql(`

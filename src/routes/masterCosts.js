@@ -17,6 +17,7 @@ router.get(
     try {
       const { workOrderId } = req.query;
       const items = await monday.getMasterCosts(workOrderId || null);
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.json({ data: items });
     } catch (err) {
       next(err);
