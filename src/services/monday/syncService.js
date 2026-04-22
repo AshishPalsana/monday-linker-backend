@@ -17,8 +17,13 @@ async function syncTimeEntryToCost(timeEntryId) {
       return;
     }
 
-    if (entry.entryType === "NonJob" && !entry.workOrderRef) {
-      console.log(`[syncService] NonJob TimeEntry ${timeEntryId} has no Work Order. Skipping cost sync.`);
+    if (entry.entryType === "DailyShift") {
+      console.log(`[syncService] DailyShift TimeEntry ${timeEntryId} — no cost sync needed.`);
+      return;
+    }
+
+    if (!entry.workOrderRef) {
+      console.log(`[syncService] TimeEntry ${timeEntryId} has no Work Order. Skipping cost sync.`);
       return;
     }
 
@@ -46,7 +51,7 @@ async function syncTimeEntryToCost(timeEntryId) {
       const created = await monday.createMasterCostItem({
         workOrderId: entry.workOrderRef,
         workOrderLabel: entry.workOrderLabel || "",
-        itemName: `Labor: ${entry.technician.name}`,
+        name: `Labor: ${entry.technician.name}`,
         type,
         quantity,
         rate,
@@ -113,7 +118,7 @@ async function syncExpenseToCost(expenseId) {
       const created = await monday.createMasterCostItem({
         workOrderId: workOrderRef,
         workOrderLabel: expense.timeEntry.workOrderLabel || "",
-        itemName: `${expense.type}: ${expense.timeEntry.technician.name}`,
+        name: `${expense.type}: ${expense.timeEntry.technician.name}`,
         type,
         quantity,
         rate,

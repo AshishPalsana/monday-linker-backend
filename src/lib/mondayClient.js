@@ -304,6 +304,35 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
 }
 
 /**
+ * Fetches a single Time Entry item from Monday with all relevant column values.
+ * Used to read live state (e.g. EXPENSES_ADDED checkbox) before clock-out.
+ */
+async function getTimeEntryDetails(mondayItemId) {
+  if (!mondayItemId) return null;
+  const TE = COL.TIME_ENTRIES;
+  const result = await graphql(`
+    query {
+      items(ids: [${mondayItemId}]) {
+        id
+        name
+        column_values(ids: [
+          "${TE.TOTAL_HOURS}",
+          "${TE.CLOCK_IN}",
+          "${TE.CLOCK_OUT}",
+          "${TE.TASK_TYPE}",
+          "${TE.EXPENSES_ADDED}"
+        ]) {
+          id
+          text
+          value
+        }
+      }
+    }
+  `);
+  return result.items?.[0] || null;
+}
+
+/**
  * Appends a narrative to the Work Order's "Work Performed" column.
  */
 async function appendWorkOrderNarrative(workOrderItemId, newNarrative) {
@@ -747,6 +776,7 @@ module.exports = {
   setWorkOrderComplete,
   createTimeEntryItem,
   updateTimeEntryItem,
+  getTimeEntryDetails,
   createExpenseItem,
   updateWorkOrderId,
   updateCustomerAccountNumber,
