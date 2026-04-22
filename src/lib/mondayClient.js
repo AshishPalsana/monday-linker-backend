@@ -1087,11 +1087,15 @@ async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, q
   const MC = COL.MASTER_COSTS;
   const cv = {};
 
-  cv[MC.TYPE] = { label: type };
-  cv[MC.QUANTITY] = quantity;
-  cv[MC.RATE] = rate;
-  cv[MC.TOTAL_COST] = totalCost;
-  if (description) cv[MC.DESCRIPTION] = { text: description };
+  cv[MC.TYPE] = { label: type || "Labor" };
+  cv[MC.QUANTITY] = String(quantity || 0);
+  cv[MC.RATE] = String(rate || 0);
+  cv[MC.TOTAL_COST] = String(totalCost || 0);
+  
+  // For 'Text' columns, Monday expects a raw string, not an object.
+  if (description) cv[MC.DESCRIPTION] = String(description);
+  
+  // For 'Date' columns, { date: "YYYY-MM-DD" } is correct.
   if (date) cv[MC.DATE] = { date };
 
   const itemName = (name || `${type} — ${description || workOrderLabel || ""}`).slice(0, 100);
