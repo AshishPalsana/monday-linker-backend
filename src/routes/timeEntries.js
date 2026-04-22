@@ -307,6 +307,24 @@ router.patch(
       const diffMs = clockOut - entry.clockIn;
       const hoursWorked = parseFloat((diffMs / 3_600_000).toFixed(2));
 
+      // NEW: Live check of Monday status for "Expenses Added"
+      if (entry.mondayItemId) {
+        const item = await monday.getTimeEntryDetails(entry.mondayItemId);
+        const expAddedCol = item?.column_values?.find(c => c.id === monday.COL.TIME_ENTRIES.EXPENSES_ADDED);
+        const isExpMarked = expAddedCol?.text === "v" || expAddedCol?.value === "{\"checked\":\"true\"}";
+        
+        if (isExpMarked && (!req.body.expenses || req.body.expenses.length === 0)) {
+           // Also check DB for already added expenses
+           const dbExps = await prisma.expense.count({ where: { timeEntryId: entry.id } });
+           if (dbExps === 0) {
+             return res.status(400).json({
+               error: "Expenses details are required. You marked that expenses were added during the day, so you must provide details before clocking out.",
+               code: "EXPENSES_DETAILS_REQUIRED"
+             });
+           }
+        }
+      }
+
       const { narrative, jobLocation, expenses = [], markComplete = false } = req.body;
 
       const existingExpenses = await prisma.expense.findMany({

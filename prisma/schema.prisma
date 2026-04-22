@@ -62,7 +62,6 @@ model TimeEntry {
   // Monday.com item ID — set after creating the item on the Time Entries board
   mondayItemId    String?
   masterCostItemId String?   // Linked ID on the Master Costs board
-  expensesAdded   Boolean     @default(false)
 
   // Timing
   clockIn         DateTime

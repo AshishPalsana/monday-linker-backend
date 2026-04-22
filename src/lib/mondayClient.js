@@ -993,7 +993,11 @@ async function getMasterCosts(workOrderId) {
         
         const isMatch = linkedIds.some(link => {
           const id = String(link.linkedPulseId || link.id || link.pulseId || link);
-          return id === String(workOrderId);
+          const match = id === String(workOrderId);
+          if (!match) {
+             console.log(`[mondayClient] Comparing item ${item.id} ID ${id} vs target ${workOrderId}`);
+          }
+          return match;
         });
 
         if (isMatch) {

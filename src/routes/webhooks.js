@@ -11,6 +11,7 @@ const {
   COL,
   getWorkOrderDetails,
   getCustomerDetails,
+  graphql,
 } = require("../lib/mondayClient");
 const companyCam = require("../services/companyCamService");
 const xeroService = require("../services/xeroService");
@@ -467,7 +468,7 @@ router.post("/monday/item-created", async (req, res, next) => {
       setImmediate(async () => {
         try {
           // 1. Fetch current Master Cost item to get its linked Work Order
-          const result = await require("../lib/mondayClient").graphql(`
+          const result = await graphql(`
             query {
               items(ids: [${pulseId}]) {
                 column_values(ids: ["${COL.MASTER_COSTS.WORK_ORDERS_REL}"]) {
