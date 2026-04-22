@@ -1091,10 +1091,9 @@ async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, q
   cv[MC.QUANTITY] = String(quantity || 0);
   cv[MC.RATE] = String(rate || 0);
   cv[MC.TOTAL_COST] = String(totalCost || 0);
-  
-  // 'text_mm25nhbc' is a Text column, so it MUST be a raw string.
+
   if (description) cv[MC.DESCRIPTION] = String(description);
-  
+
   if (date) cv[MC.DATE] = { date };
 
   const itemName = (name || `${type} — ${description || workOrderLabel || ""}`).slice(0, 100);
