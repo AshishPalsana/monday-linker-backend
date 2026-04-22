@@ -432,7 +432,7 @@ async function createProjectTimeEntry({ xeroProjectId, description, hours, date 
   const { xero, tenantId } = await getAuthenticatedClient();
 
   try {
-    const usersResponse = await xero.projectApi.getUsers(tenantId);
+    const usersResponse = await xero.projectApi.getProjectUsers(tenantId);
     const xeroUserId = usersResponse.body?.items?.[0]?.userId;
     if (!xeroUserId) throw new Error("No active users found in Xero Projects to attribute time to.");
 
@@ -461,17 +461,17 @@ async function createProjectExpense({ xeroProjectId, description, amount, date }
   const { xero, tenantId } = await getAuthenticatedClient();
 
   try {
-    const response = await xero.projectApi.createChargeableItem(tenantId, xeroProjectId, {
+    const response = await xero.projectApi.createTask(tenantId, xeroProjectId, {
       name: description,
-      amount: { value: amount, currency: "USD" },
-      type: "EXPENSE",
+      rate: { value: amount, currency: "USD" },
+      chargeType: "FIXED",
     });
-    const expenseId = response.body?.projectItemId || response.body?.chargeableItemId;
-    console.log(`[xeroService] ✓ Project Expense created — expenseId=${expenseId}`);
-    return expenseId || null;
+    const taskId = response.body?.taskId;
+    console.log(`[xeroService] ✓ Project Task (fixed expense) created — taskId=${taskId}`);
+    return taskId || null;
   } catch (err) {
     const detail = parseXeroError(err);
-    throw new Error(`Xero createChargeableItem failed: ${detail}`);
+    throw new Error(`Xero createTask failed: ${detail}`);
   }
 }
 
