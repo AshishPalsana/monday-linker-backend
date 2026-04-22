@@ -890,7 +890,7 @@ async function getActiveWorkOrders() {
   return items.map(item => {
     const woId = item.column_values.find(c => c.id === COL.WORK_ORDERS.WORKORDER_ID)?.text || "";
     const techVal = item.column_values.find(c => c.id === COL.WORK_ORDERS.TECHNICIAN)?.value;
-    
+
     let techIds = [];
     if (techVal) {
       try {
@@ -1087,15 +1087,11 @@ async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, q
   const MC = COL.MASTER_COSTS;
   const cv = {};
 
-  cv[MC.TYPE] = { label: type || "Labor" };
-  cv[MC.QUANTITY] = String(quantity || 0);
-  cv[MC.RATE] = String(rate || 0);
-  cv[MC.TOTAL_COST] = String(totalCost || 0);
-  
-  // For 'Text' columns, Monday expects a raw string, not an object.
-  if (description) cv[MC.DESCRIPTION] = String(description);
-  
-  // For 'Date' columns, { date: "YYYY-MM-DD" } is correct.
+  cv[MC.TYPE] = { label: type };
+  cv[MC.QUANTITY] = quantity;
+  cv[MC.RATE] = rate;
+  cv[MC.TOTAL_COST] = totalCost;
+  if (description) cv[MC.DESCRIPTION] = { text: description };
   if (date) cv[MC.DATE] = { date };
 
   const itemName = (name || `${type} — ${description || workOrderLabel || ""}`).slice(0, 100);

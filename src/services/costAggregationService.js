@@ -40,9 +40,14 @@ async function aggregateWorkOrderCosts(workOrderId) {
       console.log(`[aggregation] Checking for un-synced items in Xero Project ${syncMapping.xeroProjectId}...`);
 
       for (const item of costs) {
-        // Perform Xero sync (Create or Update)
         const xeroSyncCol    = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.XERO_SYNC_ID);
         const existingXeroId = xeroSyncCol?.text?.trim() || null;
+ 
+        // Skip items already synced — updates go through the PATCH route only
+        if (existingXeroId) {
+          console.log(`[aggregation] Item ${item.id} already synced (id=${existingXeroId}) — skipping.`);
+          continue;
+        }
 
         const typeCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.TYPE);
         const qtyCol   = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.QUANTITY);
@@ -61,7 +66,7 @@ async function aggregateWorkOrderCosts(workOrderId) {
         try {
           const newXeroSyncId = await xero.syncMasterCostItemToXero({
             xeroProjectId: syncMapping.xeroProjectId,
-            existingXeroSyncId: existingXeroId,
+            existingXeroSyncId: null,
             type,
             description,
             quantity,
