@@ -4,7 +4,7 @@ const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
-const { syncMasterCostItemToXero } = require("../services/xeroService");
+const { syncMasterCostItemToXero, deleteXeroSyncEntry } = require("../services/xeroService");
 const { markItemAsSynced } = require("../services/costAggregationService");
 
 const router = express.Router();
@@ -113,29 +113,11 @@ router.post(
         mondayUserId: req.technician.mondayUserId || null,
       });
 
-      // Mark before Xero sync so the create_pulse webhook skips double-syncing
-      markItemAsSynced(created.id);
+      // Xero sync is handled by the create_pulse webhook (aggregateWorkOrderCosts).
+      // This avoids double-syncing since the webhook fires for every new item regardless
+      // of whether it was created from the app or directly in Monday.
 
-      // Sync to Xero (non-blocking on failure)
-      const xeroSyncId = await attemptXeroSync({
-        workOrderMondayId: workOrderId,
-        existingXeroSyncId: null,
-        type,
-        name: created.name || name,
-        description,
-        quantity: qty,
-        rate: rt,
-        totalCost,
-        date,
-      });
-
-      if (xeroSyncId) {
-        await monday.updateMasterCostItem(created.id, { xeroSyncId }).catch((err) => {
-          console.warn(`[masterCosts] Could not write xeroSyncId to Monday item ${created.id}:`, err.message);
-        });
-      }
-
-      res.status(201).json({ data: { ...created, xeroSyncId } });
+      res.status(201).json({ data: created });
     } catch (err) {
       next(err);
     }
@@ -259,7 +241,31 @@ router.delete(
   validate,
   async (req, res, next) => {
     try {
-      await monday.deleteMasterCostItem(req.params.mondayItemId);
+      const { mondayItemId } = req.params;
+
+      // Fetch current item to get XERO_SYNC_ID and work order relation before deleting
+      const currentItem = await monday.getMasterCostItem(mondayItemId).catch(() => null);
+
+      if (currentItem) {
+        const xeroSyncCol = currentItem.column_values.find(c => c.id === monday.COL.MASTER_COSTS.XERO_SYNC_ID);
+        const xeroSyncId  = xeroSyncCol?.text?.trim() || null;
+
+        if (xeroSyncId && !xeroSyncId.startsWith("synced-")) {
+          const relCol  = currentItem.column_values.find(c => c.id === monday.COL.MASTER_COSTS.WORK_ORDERS_REL);
+          const linkedIds = relCol?.linked_item_ids;
+          const workOrderMondayId = Array.isArray(linkedIds) && linkedIds.length ? String(linkedIds[0]) : null;
+          const xeroProjectId = await getXeroProjectId(workOrderMondayId);
+
+          if (xeroProjectId) {
+            await deleteXeroSyncEntry(xeroProjectId, xeroSyncId).catch((err) => {
+              console.warn(`[masterCosts] Could not delete Xero entry ${xeroSyncId} for item ${mondayItemId}:`, err.message);
+            });
+            console.log(`[masterCosts] ✓ Deleted Xero entry ${xeroSyncId} for item ${mondayItemId}`);
+          }
+        }
+      }
+
+      await monday.deleteMasterCostItem(mondayItemId);
       res.status(204).send();
     } catch (err) {
       next(err);

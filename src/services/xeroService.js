@@ -465,7 +465,9 @@ async function createProjectTimeEntry({ xeroProjectId, description, hours, rate,
 
     const timeEntryId = response.body?.timeEntryId;
     console.log(`[xeroService] ✓ Time Entry created — timeEntryId=${timeEntryId} taskId=${taskId}`);
-    return timeEntryId || taskId;
+    // Return taskId (not timeEntryId) — deleting the task removes the task + all its time entries,
+    // preventing orphaned TIME tasks that show up as ghost entries in Xero.
+    return taskId;
   } catch (err) {
     const detail = parseXeroError(err);
     throw new Error(`Xero createTimeEntry failed: ${detail}`);
@@ -526,11 +528,34 @@ async function deleteProjectTask(xeroProjectId, taskId) {
 }
 
 /**
+ * Deletes a Xero Project entry by its encoded XERO_SYNC_ID.
+ * Both TIME and TASK entries store a taskId — deleting the task removes it
+ * and any associated time entries (prevents orphaned ghost tasks in Xero).
+ * For legacy raw UUIDs (no colon prefix), tries task deletion then time entry deletion.
+ */
+async function deleteXeroSyncEntry(xeroProjectId, xeroSyncId) {
+  if (!xeroSyncId || xeroSyncId.startsWith("synced-")) return;
+  const colonIdx = xeroSyncId.indexOf(":");
+  if (colonIdx !== -1) {
+    // New format: "TIME:taskId" or "TASK:taskId" — always delete the task
+    const xeroId = xeroSyncId.slice(colonIdx + 1);
+    await deleteProjectTask(xeroProjectId, xeroId);
+  } else {
+    // Legacy raw UUID — unknown type, try task first then time entry
+    try {
+      await deleteProjectTask(xeroProjectId, xeroSyncId);
+    } catch (_) {
+      await deleteProjectTimeEntry(xeroProjectId, xeroSyncId);
+    }
+  }
+}
+
+/**
  * Unified sync function for a Master Cost item to a Xero Project.
  *
- * Encodes the Xero ID as "TIME:<uuid>" for labor (time entries) or
- * "TASK:<uuid>" for parts/expenses (fixed tasks) so we know how to
- * delete/update it on future edits.
+ * Encodes the Xero ID as "TIME:<taskId>" for labor or "TASK:<taskId>"
+ * for parts/expenses. Both store the Xero taskId so the whole task
+ * (and its time entries) can be deleted cleanly on update.
  *
  * @param {object} params
  * @param {string} params.xeroProjectId    - UUID of the Xero Project
@@ -553,28 +578,11 @@ async function syncMasterCostItemToXero({
   totalCost,
   date,
 }) {
-  // Remove any previously synced entry first (delete-then-recreate for idempotency)
+  // Remove any previously synced entry first (delete-then-recreate for idempotency).
+  // Both TIME and TASK entries are stored as taskIds — deleting the task removes everything.
   if (existingXeroSyncId && !existingXeroSyncId.startsWith("synced-")) {
-    const colonIdx = existingXeroSyncId.indexOf(":");
     try {
-      if (colonIdx !== -1) {
-        // New format: "TIME:uuid" or "TASK:uuid"
-        const xeroType = existingXeroSyncId.slice(0, colonIdx);
-        const xeroId   = existingXeroSyncId.slice(colonIdx + 1);
-        if (xeroType === "TIME") {
-          await deleteProjectTimeEntry(xeroProjectId, xeroId);
-        } else if (xeroType === "TASK") {
-          await deleteProjectTask(xeroProjectId, xeroId);
-        }
-      } else {
-        // Legacy format: raw UUID stored by the old aggregation path.
-        // Use current type as best-effort hint for what kind of entry it is.
-        if (type === "Labor") {
-          await deleteProjectTimeEntry(xeroProjectId, existingXeroSyncId);
-        } else {
-          await deleteProjectTask(xeroProjectId, existingXeroSyncId);
-        }
-      }
+      await deleteXeroSyncEntry(xeroProjectId, existingXeroSyncId);
     } catch (err) {
       // Log but don't block — the old entry may already be gone in Xero
       console.warn(`[xeroService] Could not delete existing Xero entry ${existingXeroSyncId}:`, err.message);
@@ -613,6 +621,7 @@ module.exports = {
   createProjectExpense,
   deleteProjectTimeEntry,
   deleteProjectTask,
+  deleteXeroSyncEntry,
   syncMasterCostItemToXero,
   getAuthenticatedClient,
   XERO_SCOPES,
