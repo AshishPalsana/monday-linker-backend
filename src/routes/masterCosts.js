@@ -5,6 +5,7 @@ const { validate } = require("../middleware/validate");
 const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
 const { syncMasterCostItemToXero } = require("../services/xeroService");
+const { markItemAsSynced } = require("../services/costAggregationService");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -112,6 +113,9 @@ router.post(
         mondayUserId: req.technician.mondayUserId || null,
       });
 
+      // Mark before Xero sync so the create_pulse webhook skips double-syncing
+      markItemAsSynced(created.id);
+
       // Sync to Xero (non-blocking on failure)
       const xeroSyncId = await attemptXeroSync({
         workOrderMondayId: workOrderId,
@@ -198,6 +202,9 @@ router.patch(
           updates.totalCost = parseFloat((q * r).toFixed(2));
         }
       }
+
+      // Mark before Monday update so cost-relevant column webhooks skip double-syncing
+      markItemAsSynced(mondayItemId);
 
       await monday.updateMasterCostItem(mondayItemId, updates);
 

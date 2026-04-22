@@ -2,6 +2,25 @@ const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
 const xero = require("./xeroService");
 
+// Items synced by the direct REST route (POST/PATCH) within this window are
+// skipped by the webhook aggregation to prevent double-syncing to Xero.
+const RECENTLY_SYNCED_TTL_MS = 60_000;
+const recentlySynced = new Map(); // itemId (string) → timestamp (ms)
+
+function markItemAsSynced(itemId) {
+  recentlySynced.set(String(itemId), Date.now());
+}
+
+function wasRecentlySynced(itemId) {
+  const ts = recentlySynced.get(String(itemId));
+  if (!ts) return false;
+  if (Date.now() - ts > RECENTLY_SYNCED_TTL_MS) {
+    recentlySynced.delete(String(itemId));
+    return false;
+  }
+  return true;
+}
+
 /**
  * Recalculates and updates the Total Job Cost for a Work Order
  * by summing all its linked items in the Master Costs board.
@@ -42,10 +61,11 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
       for (const item of costs) {
         const xeroSyncCol    = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.XERO_SYNC_ID);
         const existingXeroId = xeroSyncCol?.text?.trim() || null;
-        const isForceResync  = forceResyncItemId && String(item.id) === String(forceResyncItemId);
+        const isForceResync     = forceResyncItemId && String(item.id) === String(forceResyncItemId);
+        const recentlyHandled   = isForceResync && wasRecentlySynced(String(item.id));
 
-        if (existingXeroId && !isForceResync) {
-          console.log(`[aggregation] Item ${item.id} already synced to Xero (id=${existingXeroId}) — skipping.`);
+        if (existingXeroId && (!isForceResync || recentlyHandled)) {
+          console.log(`[aggregation] Item ${item.id} already synced to Xero (id=${existingXeroId})${recentlyHandled ? " — recently handled by direct route" : ""} — skipping.`);
           continue;
         }
 
@@ -95,4 +115,5 @@ async function aggregateWorkOrderCosts(workOrderId, { forceResyncItemId = null }
 
 module.exports = {
   aggregateWorkOrderCosts,
+  markItemAsSynced,
 };
