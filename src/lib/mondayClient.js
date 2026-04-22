@@ -1028,6 +1028,7 @@ async function getMasterCosts(workOrderId) {
             id
             name
             created_at
+            group { id title }
             column_values(ids: [
               "${MC.WORK_ORDERS_REL}",
               "${MC.TYPE}",
@@ -1037,9 +1038,11 @@ async function getMasterCosts(workOrderId) {
               "${MC.DESCRIPTION}",
               "${MC.DATE}",
               "${MC.INVOICE_STATUS}",
-              "${MC.WORK_ORDERS_REL}",
               "${MC.XERO_SYNC_ID}"
-            ]) { id text value }
+            ]) {
+              id text value
+              ... on BoardRelationValue { linked_item_ids }
+            }
           }
         }
       }
