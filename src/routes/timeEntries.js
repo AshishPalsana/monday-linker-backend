@@ -281,8 +281,8 @@ router.patch(
   "/:id/clock-out",
   [
     param("id").isString().notEmpty(),
-    body("narrative").isLength({ min: 10 }).withMessage("narrative must be at least 10 characters"),
-    body("jobLocation").notEmpty().withMessage("jobLocation is required"),
+    body("narrative").optional({ values: "null" }).isString(),
+    body("jobLocation").optional({ values: "null" }).isString(),
     body("expenses").optional().isArray(),
     body("expenses.*.type").optional().isIn(["Fuel", "Lodging", "Meals", "Supplies"]),
     body("expenses.*.amount").optional().isFloat({ min: 0 }),
@@ -303,18 +303,30 @@ router.patch(
         return res.status(409).json({ error: "Entry is already clocked out" });
       }
 
+      const isDailyShift = entry.entryType === "DailyShift";
+
+      // Narrative and location are required for Job and NonJob, not DailyShift
+      if (!isDailyShift) {
+        const { narrative: nar, jobLocation: loc } = req.body;
+        if (!nar || nar.trim().length < 10) {
+          return res.status(400).json({ error: "narrative must be at least 10 characters" });
+        }
+        if (!loc || !loc.trim()) {
+          return res.status(400).json({ error: "jobLocation is required" });
+        }
+      }
+
       const clockOut = new Date();
       const diffMs = clockOut - entry.clockIn;
       const hoursWorked = parseFloat((diffMs / 3_600_000).toFixed(2));
 
-      // NEW: Live check of Monday status for "Expenses Added"
-      if (entry.mondayItemId) {
+      // Live check of Monday "Expenses Added" status — only relevant for Job/NonJob
+      if (!isDailyShift && entry.mondayItemId) {
         const item = await monday.getTimeEntryDetails(entry.mondayItemId);
         const expAddedCol = item?.column_values?.find(c => c.id === monday.COL.TIME_ENTRIES.EXPENSES_ADDED);
         const isExpMarked = expAddedCol?.text === "v" || expAddedCol?.value === "{\"checked\":\"true\"}";
-        
+
         if (isExpMarked && (!req.body.expenses || req.body.expenses.length === 0)) {
-           // Also check DB for already added expenses
            const dbExps = await prisma.expense.count({ where: { timeEntryId: entry.id } });
            if (dbExps === 0) {
              return res.status(400).json({
@@ -325,7 +337,7 @@ router.patch(
         }
       }
 
-      const { narrative, jobLocation, expenses = [], markComplete = false } = req.body;
+      const { narrative = "", jobLocation = "", expenses = [], markComplete = false } = req.body;
 
       const existingExpenses = await prisma.expense.findMany({
         where: { timeEntryId: entry.id }
