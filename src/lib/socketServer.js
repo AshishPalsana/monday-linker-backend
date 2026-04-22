@@ -136,4 +136,13 @@ function emitTimeEvent(event, payload) {
   }
 }
 
-module.exports = { attachSocketIO, emitTimeEvent };
+/**
+ * Emit a customer sync completion event so the frontend can refresh without polling.
+ * @param {object} payload - { customerId, xeroContactId, xeroSyncStatus }
+ */
+function emitCustomerSync(payload) {
+  if (!io) return;
+  io.emit("customer:synced", payload);
+}
+
+module.exports = { attachSocketIO, emitTimeEvent, emitCustomerSync };

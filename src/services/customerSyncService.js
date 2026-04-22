@@ -5,6 +5,7 @@ const {
   updateCustomerXeroId,
   getCustomerDetails
 } = require("../lib/mondayClient");
+const { emitCustomerSync } = require("../lib/socketServer");
 
 async function syncCustomerToXero(pulseId) {
   console.log(`[customerSyncService] Starting sync for pulse ${pulseId}…`);
@@ -78,9 +79,12 @@ async function syncCustomerToXero(pulseId) {
       console.log(`[customerSyncService] ✓ Sync complete for ${customer.name}`);
     } catch (monErr) {
       console.error(`[customerSyncService] Monday update failed for ${pulseId}:`, monErr.message);
-      // Note: We don't mark as Failed because Xero/DB are correct. 
+      // Note: We don't mark as Failed because Xero/DB are correct.
       // A recovery sweep can eventually fix the Monday display.
     }
+
+    // 6. Notify frontend so it can refresh without polling
+    emitCustomerSync({ customerId: pulseId, xeroContactId, xeroSyncStatus: "Synced" });
 
   } catch (err) {
     console.error(`[customerSyncService] ✗ Sync failed for ${customer.name}:`, err.message);
