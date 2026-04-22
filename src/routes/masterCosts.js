@@ -4,7 +4,7 @@ const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
-const { syncMasterCostItemToXero, deleteXeroSyncEntry } = require("../services/xeroService");
+const { syncMasterCostItemToXero, deleteXeroSyncEntry, tryAcquireSyncLock, releaseSyncLock } = require("../services/xeroService");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -113,24 +113,34 @@ router.post(
         mondayUserId: req.technician.mondayUserId || null,
       });
 
-      // 2. Trigger Xero sync immediately
-      const xeroSyncId = await attemptXeroSync({
-        mondayItemId: created.id,
-        workOrderMondayId: workOrderId,
-        type,
-        name,
-        description,
-        quantity: qty,
-        rate: rt,
-        totalCost,
-        date: date || null,
-      });
+      // 2. Trigger Xero sync immediately.
+      // Lock covers sync + Monday write-back so aggregation can't create a duplicate
+      // in the window between Xero entry creation and xeroSyncId being persisted.
+      let xeroSyncId = null;
+      const lockAcquired = tryAcquireSyncLock(created.id);
+      try {
+        if (lockAcquired) {
+          xeroSyncId = await attemptXeroSync({
+            mondayItemId: created.id,
+            workOrderMondayId: workOrderId,
+            type,
+            name,
+            description,
+            quantity: qty,
+            rate: rt,
+            totalCost,
+            date: date || null,
+          });
 
-      // 3. Update the item in Monday with the Xero ID if sync was successful
-      if (xeroSyncId) {
-        await monday.updateMasterCostItem(created.id, { xeroSyncId }).catch((err) => {
-          console.warn(`[masterCosts] Failed to save xeroSyncId to Monday:`, err.message);
-        });
+          // 3. Update the item in Monday with the Xero ID if sync was successful
+          if (xeroSyncId) {
+            await monday.updateMasterCostItem(created.id, { xeroSyncId }).catch((err) => {
+              console.warn(`[masterCosts] Failed to save xeroSyncId to Monday:`, err.message);
+            });
+          }
+        }
+      } finally {
+        if (lockAcquired) releaseSyncLock(created.id);
       }
 
       res.status(201).json({ data: created });
@@ -203,7 +213,9 @@ router.patch(
 
       await monday.updateMasterCostItem(mondayItemId, updates);
 
-      // Xero sync — only when fields that affect cost/type/description changed
+      // Xero sync — only when fields that affect cost/type/description changed.
+      // Lock covers sync + Monday write-back to prevent aggregation creating a duplicate
+      // in the window between Xero entry creation and xeroSyncId being persisted.
       const xeroRelevantChanged = [type, quantity, rate, description, date].some(
         (v) => v !== undefined,
       );
@@ -216,27 +228,33 @@ router.patch(
         const effectiveRate        = updates.rate        ?? parseFloat(currentItem?.column_values?.find(c => c.id === monday.COL.MASTER_COSTS.RATE)?.text || 0);
         const effectiveTotalCost   = updates.totalCost   ?? parseFloat(currentItem?.column_values?.find(c => c.id === monday.COL.MASTER_COSTS.TOTAL_COST)?.text || 0);
         const effectiveDate        = updates.date        ?? currentItem?.column_values?.find(c => c.id === monday.COL.MASTER_COSTS.DATE)?.text;
+        const effectiveName        = updates.name        ?? currentItem?.name;
 
-        const effectiveName = updates.name ?? currentItem?.name;
+        const lockAcquired = tryAcquireSyncLock(mondayItemId);
+        try {
+          if (lockAcquired) {
+            const syncedId = await attemptXeroSync({
+              mondayItemId,
+              workOrderMondayId: resolvedWorkOrderId,
+              existingXeroSyncId,
+              type: effectiveType,
+              name: effectiveName,
+              description: effectiveDescription,
+              quantity: effectiveQuantity,
+              rate: effectiveRate,
+              totalCost: effectiveTotalCost,
+              date: effectiveDate,
+            });
 
-        const syncedId = await attemptXeroSync({
-          mondayItemId,
-          workOrderMondayId: resolvedWorkOrderId,
-          existingXeroSyncId,
-          type: effectiveType,
-          name: effectiveName,
-          description: effectiveDescription,
-          quantity: effectiveQuantity,
-          rate: effectiveRate,
-          totalCost: effectiveTotalCost,
-          date: effectiveDate,
-        });
-
-        if (syncedId !== null && syncedId !== existingXeroSyncId) {
-          await monday.updateMasterCostItem(mondayItemId, { xeroSyncId: syncedId }).catch((err) => {
-            console.warn(`[masterCosts] Could not write xeroSyncId to Monday item ${mondayItemId}:`, err.message);
-          });
-          newXeroSyncId = syncedId;
+            if (syncedId !== null && syncedId !== existingXeroSyncId) {
+              await monday.updateMasterCostItem(mondayItemId, { xeroSyncId: syncedId }).catch((err) => {
+                console.warn(`[masterCosts] Could not write xeroSyncId to Monday item ${mondayItemId}:`, err.message);
+              });
+              newXeroSyncId = syncedId;
+            }
+          }
+        } finally {
+          if (lockAcquired) releaseSyncLock(mondayItemId);
         }
       }
 

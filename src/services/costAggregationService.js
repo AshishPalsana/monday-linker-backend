@@ -1,6 +1,7 @@
 const monday = require("../lib/mondayClient");
 const prisma = require("../lib/prisma");
 const xero = require("./xeroService");
+const { tryAcquireSyncLock, releaseSyncLock } = xero;
 
 /**
  * Recalculates and updates the Total Job Cost for a Work Order
@@ -44,8 +45,15 @@ async function aggregateWorkOrderCosts(workOrderId) {
         const existingXeroId = xeroSyncCol?.text?.trim() || null;
  
         // Skip items already synced — updates go through the PATCH/POST route only.
-        // This prevents duplicates if the webhook fires for an item we just synced manually.
+        // Also skip items currently being synced by the POST route (lock held) to prevent
+        // duplicates in the window between Xero creation and Monday write-back.
         if (existingXeroId) {
+          continue;
+        }
+
+        const lockAcquired = tryAcquireSyncLock(item.id);
+        if (!lockAcquired) {
+          console.log(`[aggregation] Item ${item.id} sync already in progress — skipping.`);
           continue;
         }
 
@@ -65,7 +73,6 @@ async function aggregateWorkOrderCosts(workOrderId) {
 
         try {
           const newXeroSyncId = await xero.syncMasterCostItemToXero({
-            pulseId: item.id,
             xeroProjectId: syncMapping.xeroProjectId,
             existingXeroSyncId: existingXeroId,
             type,
@@ -81,6 +88,8 @@ async function aggregateWorkOrderCosts(workOrderId) {
           console.log(`[aggregation] ✓ Item ${item.id} initial sync to Xero — xeroSyncId=${syncId}`);
         } catch (xeroErr) {
           console.error(`[aggregation] Xero sync failed for item ${item.id}:`, xeroErr.message);
+        } finally {
+          releaseSyncLock(item.id);
         }
       }
     }
