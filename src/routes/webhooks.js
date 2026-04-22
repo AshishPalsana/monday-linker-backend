@@ -462,8 +462,11 @@ router.post("/monday/item-created", async (req, res, next) => {
 
     // ── Master Costs board ──────────────────────────────────────────────────
     if (String(boardId) === String(BOARD.MASTER_COSTS)) {
-      // Columns whose changes should trigger a Xero re-sync for the specific item.
-      // XERO_SYNC_ID and INVOICE_STATUS are excluded to prevent infinite loops.
+      // Only process item creation and changes to cost-relevant columns.
+      // XERO_SYNC_ID and INVOICE_STATUS are excluded — they're written by our own backend
+      // and must not trigger another sync (would cause infinite loops or duplicates).
+      // NOTE: Xero re-sync on edits is handled directly by the PATCH route, not here.
+      // The webhook only handles: (1) total cost aggregation, (2) initial Xero sync for new items.
       const COST_RELEVANT_COLS = new Set([
         COL.MASTER_COSTS.TYPE,
         COL.MASTER_COSTS.QUANTITY,
@@ -471,6 +474,7 @@ router.post("/monday/item-created", async (req, res, next) => {
         COL.MASTER_COSTS.DESCRIPTION,
         COL.MASTER_COSTS.DATE,
         COL.MASTER_COSTS.TOTAL_COST,
+        COL.MASTER_COSTS.WORK_ORDERS_REL,
       ]);
 
       const isCreate = event.type === "create_pulse";
@@ -514,11 +518,9 @@ router.post("/monday/item-created", async (req, res, next) => {
           }
 
           if (workOrderId) {
-            // Pass forceResyncItemId only for cost-relevant column changes so the aggregation
-            // knows to delete the old Xero entry and create a fresh one for this item.
-            await aggregateWorkOrderCosts(String(workOrderId), {
-              forceResyncItemId: isCostRelevantChange ? String(pulseId) : null,
-            });
+            // Never force-resync here — the PATCH route handles Xero updates directly.
+            // The aggregation only syncs items that have no XERO_SYNC_ID yet (new items).
+            await aggregateWorkOrderCosts(String(workOrderId));
           } else {
             console.log(`[webhook] Master Cost ${pulseId} has no linked Work Order yet — skipping aggregation.`);
           }
