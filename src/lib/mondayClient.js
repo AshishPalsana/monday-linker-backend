@@ -832,6 +832,76 @@ async function getLocationsBoardData() {
 }
 
 /**
+ * Fetches all users in the Monday workspace (non-guest).
+ * Used to seed the Technicians board with workspace members.
+ */
+async function getAllMondayUsers() {
+  const result = await graphql(`
+    query {
+      users(kind: non_guests) {
+        id
+        name
+        email
+        is_admin
+      }
+    }
+  `);
+  return result?.users || [];
+}
+
+/**
+ * Fetches all items from the Technicians board with their email column.
+ * Used to check which technicians already have a board row before syncing.
+ */
+async function getAllTechnicianBoardItems() {
+  const result = await graphql(`
+    {
+      boards(ids: [${BOARD.TECHNICIANS}]) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            column_values(ids: ["${COL.TECHNICIANS.EMAIL}"]) {
+              id text
+            }
+          }
+        }
+      }
+    }
+  `);
+  const items = result?.boards?.[0]?.items_page?.items || [];
+  return items.map((item) => ({
+    mondayItemId: item.id,
+    name: item.name,
+    email: item.column_values.find((cv) => cv.id === COL.TECHNICIANS.EMAIL)?.text?.toLowerCase().trim() || "",
+  }));
+}
+
+/**
+ * Creates a new row on the Technicians board for a given Monday user.
+ */
+async function createTechnicianBoardItem({ name, email }) {
+  const cv = {};
+  if (email) cv[COL.TECHNICIANS.EMAIL] = { email, text: name };
+
+  const result = await graphql(`
+    mutation {
+      create_item(
+        board_id: ${BOARD.TECHNICIANS},
+        group_id: "topics",
+        item_name: ${JSON.stringify(name)},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id name }
+    }
+  `);
+
+  if (!result?.create_item?.id) {
+    throw new Error(`Failed to create Technicians board item for "${name}"`);
+  }
+  return result.create_item;
+}
+
+/**
  * Looks up a technician on the Technicians board by email and returns
  * their hourly rate. Used at login to sync burdenRate to the DB.
  * Returns null (never throws) so login is never blocked by this lookup.
@@ -915,6 +985,9 @@ module.exports = {
   createInvoiceItem,
   setInvoiceItemStatus,
   getTechnicianByEmail,
+  getAllMondayUsers,
+  getAllTechnicianBoardItems,
+  createTechnicianBoardItem,
   updateInvoiceItemXeroId,
   updateCustomerXeroStatus,
   updateCustomerXeroId,

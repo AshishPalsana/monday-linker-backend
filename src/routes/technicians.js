@@ -3,6 +3,7 @@ const { body, param } = require("express-validator");
 const prisma = require("../lib/prisma");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
+const monday = require("../lib/mondayClient");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -11,7 +12,7 @@ router.get("/", requireAdmin, async (req, res, next) => {
   try {
     const technicians = await prisma.technician.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, email: true, isAdmin: true, createdAt: true },
+      select: { id: true, name: true, email: true, isAdmin: true, burdenRate: true, createdAt: true },
     });
     res.json({ data: technicians });
   } catch (err) {
@@ -48,7 +49,7 @@ router.get(
       }
       const tech = await prisma.technician.findUnique({
         where: { id: req.params.id },
-        select: { id: true, name: true, email: true, isAdmin: true, createdAt: true },
+        select: { id: true, name: true, email: true, isAdmin: true, burdenRate: true, createdAt: true },
       });
       if (!tech) return res.status(404).json({ error: "Technician not found" });
       res.json({ data: tech });
@@ -85,5 +86,47 @@ router.patch(
     }
   }
 );
+
+// ── POST /api/technicians/sync-from-monday ────────────────────────────────────
+// Fetches all non-admin Monday workspace users and creates a Technicians board
+// row for any who don't already have one. Matched by email (case-insensitive).
+router.post("/sync-from-monday", requireAdmin, async (req, res, next) => {
+  try {
+    // 1. Fetch all non-admin Monday users and existing Technicians board rows in parallel
+    const [mondayUsers, existingItems] = await Promise.all([
+      monday.getAllMondayUsers(),
+      monday.getAllTechnicianBoardItems(),
+    ]);
+
+    const nonAdmins = mondayUsers.filter((u) => !u.is_admin && u.email);
+    const existingEmails = new Set(existingItems.map((t) => t.email));
+
+    const results = { created: 0, skipped: 0, errors: [] };
+
+    // 2. Create board row for each user not already on the Technicians board
+    for (const user of nonAdmins) {
+      const email = user.email.toLowerCase().trim();
+      if (existingEmails.has(email)) {
+        results.skipped++;
+        continue;
+      }
+
+      try {
+        await monday.createTechnicianBoardItem({ name: user.name, email: user.email });
+        existingEmails.add(email); // prevent duplicates within the same run
+        results.created++;
+        console.log(`[technicians/sync] ✓ Created board row for "${user.name}" (${user.email})`);
+      } catch (err) {
+        console.error(`[technicians/sync] ✗ Failed for "${user.name}":`, err.message);
+        results.errors.push({ name: user.name, email: user.email, error: err.message });
+      }
+    }
+
+    console.log(`[technicians/sync] Done — created=${results.created} skipped=${results.skipped} errors=${results.errors.length}`);
+    res.json({ data: results });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;
