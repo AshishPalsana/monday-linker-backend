@@ -1443,7 +1443,7 @@ async function getMasterCostItem(mondayItemId) {
   return result.items?.[0] || null;
 }
 
-async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, quantity, rate, totalCost, description, date, mondayUserId }) {
+async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, quantity, rate, totalCost, description, date, mondayUserId, technicianBoardItemId }) {
   const MC = COL.MASTER_COSTS;
   const cv = {};
 
@@ -1480,6 +1480,19 @@ async function createMasterCostItem({ workOrderId, workOrderLabel, name, type, q
           item_id: ${created.id},
           column_id: "${MC.WORK_ORDERS_REL}",
           value: "${JSON.stringify({ item_ids: [parseInt(workOrderId)] }).replace(/"/g, '\\"')}"
+        ) { id }
+      }
+    `);
+  }
+
+  if (technicianBoardItemId) {
+    await graphql(`
+      mutation {
+        change_column_value(
+          board_id: ${BOARD.MASTER_COSTS},
+          item_id: ${created.id},
+          column_id: "${MC.TECHNICIANS_REL}",
+          value: "${JSON.stringify({ item_ids: [parseInt(technicianBoardItemId)] }).replace(/"/g, '\\"')}"
         ) { id }
       }
     `);

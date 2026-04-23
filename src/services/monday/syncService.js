@@ -39,6 +39,15 @@ async function syncTimeEntryToCost(timeEntryId) {
     const date = toCSTDateString(entry.clockOut);
     const description = `${entry.entryType}: ${quantity}h by ${entry.technician.name}`;
 
+    // Look up the Technicians board item ID so the board_relation column can be set
+    let technicianBoardItemId = null;
+    if (entry.technician?.email) {
+      try {
+        const techItem = await monday.getTechnicianByEmail(entry.technician.email);
+        technicianBoardItemId = techItem?.mondayItemId ?? null;
+      } catch (_) { /* non-fatal */ }
+    }
+
     if (entry.masterCostItemId) {
       // Update existing
       console.log(`[syncService] Updating existing Master Cost ${entry.masterCostItemId} for TimeEntry ${timeEntryId}`);
@@ -64,6 +73,7 @@ async function syncTimeEntryToCost(timeEntryId) {
         description,
         date,
         mondayUserId: entry.technicianId,
+        technicianBoardItemId,
       });
 
       // Save ID back to DB
@@ -107,6 +117,15 @@ async function syncExpenseToCost(expenseId) {
     const date = toCSTDateString(expense.createdAt);
     const description = `${expense.type}: ${expense.details || ""} (by ${expense.timeEntry.technician.name})`;
 
+    // Look up the Technicians board item ID so the board_relation column can be set
+    let technicianBoardItemId = null;
+    if (expense.timeEntry.technician?.email) {
+      try {
+        const techItem = await monday.getTechnicianByEmail(expense.timeEntry.technician.email);
+        technicianBoardItemId = techItem?.mondayItemId ?? null;
+      } catch (_) { /* non-fatal */ }
+    }
+
     if (expense.masterCostItemId) {
       // Update existing
       console.log(`[syncService] Updating existing Master Cost ${expense.masterCostItemId} for Expense ${expenseId}`);
@@ -131,6 +150,7 @@ async function syncExpenseToCost(expenseId) {
         description,
         date,
         mondayUserId: expense.timeEntry.technicianId,
+        technicianBoardItemId,
       });
 
       // Save ID back to DB
