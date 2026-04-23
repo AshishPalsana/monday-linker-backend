@@ -918,6 +918,79 @@ async function createTechnicianBoardItem({ name, email }) {
 }
 
 /**
+ * Fetches all profile columns for a single technician board item by their Monday item ID.
+ * Returns: { mondayItemId, name, status, position, phone, email, hourlyRate, employeeId, notes }
+ */
+async function getTechnicianBoardItem(mondayItemId) {
+  const colIds = [
+    COL.TECHNICIANS.STATUS,
+    COL.TECHNICIANS.POSITION,
+    COL.TECHNICIANS.PHONE,
+    COL.TECHNICIANS.EMAIL,
+    COL.TECHNICIANS.HOURLY_RATE,
+    COL.TECHNICIANS.EMPLOYEE_ID,
+    COL.TECHNICIANS.NOTES,
+  ].map((id) => `"${id}"`).join(", ");
+
+  const result = await graphql(`
+    {
+      items(ids: [${mondayItemId}]) {
+        id
+        name
+        column_values(ids: [${colIds}]) {
+          id type text value
+        }
+      }
+    }
+  `);
+
+  const item = result?.items?.[0];
+  if (!item) return null;
+
+  const col = (id) => item.column_values.find((cv) => cv.id === id);
+
+  return {
+    mondayItemId: item.id,
+    name: item.name,
+    status:     col(COL.TECHNICIANS.STATUS)?.text || null,
+    position:   col(COL.TECHNICIANS.POSITION)?.text || null,
+    phone:      col(COL.TECHNICIANS.PHONE)?.text || null,
+    email:      extractEmailFromColumn(col(COL.TECHNICIANS.EMAIL)),
+    hourlyRate: parseFloat(col(COL.TECHNICIANS.HOURLY_RATE)?.text || 0),
+    employeeId: col(COL.TECHNICIANS.EMPLOYEE_ID)?.text || null,
+    notes:      col(COL.TECHNICIANS.NOTES)?.text || null,
+  };
+}
+
+/**
+ * Updates editable profile columns on the Technicians board for a given item.
+ * Only Status, Position, Phone, Hourly Rate, Employee ID, and Notes can be updated;
+ * Name and Email are identity fields managed by Monday and must not be changed here.
+ */
+async function updateTechnicianBoardItem(mondayItemId, { status, position, phone, hourlyRate, employeeId, notes } = {}) {
+  const cv = {};
+
+  if (status     !== undefined && status     !== null) cv[COL.TECHNICIANS.STATUS]      = { label: status };
+  if (position   !== undefined && position   !== null) cv[COL.TECHNICIANS.POSITION]    = { labels: [position] };
+  if (phone      !== undefined && phone      !== null) cv[COL.TECHNICIANS.PHONE]       = { phone, countryShortName: "US" };
+  if (hourlyRate !== undefined && hourlyRate !== null) cv[COL.TECHNICIANS.HOURLY_RATE] = String(parseFloat(hourlyRate) || 0);
+  if (employeeId !== undefined && employeeId !== null) cv[COL.TECHNICIANS.EMPLOYEE_ID] = String(employeeId);
+  if (notes      !== undefined && notes      !== null) cv[COL.TECHNICIANS.NOTES]       = { text: String(notes) };
+
+  if (Object.keys(cv).length === 0) return; // nothing to update
+
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.TECHNICIANS},
+        item_id: ${mondayItemId},
+        column_values: ${JSON.stringify(JSON.stringify(cv))}
+      ) { id }
+    }
+  `);
+}
+
+/**
  * Looks up a technician on the Technicians board by email and returns
  * their hourly rate. Used at login to sync burdenRate to the DB.
  * Returns null (never throws) so login is never blocked by this lookup.
@@ -1004,6 +1077,8 @@ module.exports = {
   getAllMondayUsers,
   getAllTechnicianBoardItems,
   createTechnicianBoardItem,
+  getTechnicianBoardItem,
+  updateTechnicianBoardItem,
   updateInvoiceItemXeroId,
   updateCustomerXeroStatus,
   updateCustomerXeroId,
