@@ -544,6 +544,57 @@ async function deleteProjectTask(xeroProjectId, taskId) {
 }
 
 /**
+ * Updates a Labor TIME task in place: updates the task rate/name AND the
+ * linked time entry's duration — no deletion required.
+ * Xero disables/blocks task deletion when time entries exist, so delete-then-
+ * recreate is not a viable update strategy for Labor entries.
+ *
+ * Returns the same taskId (unchanged) so the stored xeroSyncId stays valid.
+ */
+async function updateLaborTaskInPlace(xeroProjectId, taskId, { description, hours, rate, date }) {
+  console.log(`[xeroService] updateLaborTaskInPlace — projectId=${xeroProjectId} taskId=${taskId}`);
+  const { xero, tenantId } = await getAuthenticatedClient();
+  const durationMinutes = Math.round((parseFloat(hours) || 0) * 60);
+
+  // 1. Update the task: name and hourly rate
+  try {
+    await xero.projectApi.updateTask(tenantId, xeroProjectId, taskId, {
+      name: description || "Labor",
+      rate: { value: parseFloat(rate) || 0, currency: "USD" },
+      chargeType: "TIME",
+    });
+    console.log(`[xeroService] ✓ Task rate/name updated — taskId=${taskId}`);
+  } catch (err) {
+    throw new Error(`Xero updateTask failed: ${parseXeroError(err)}`);
+  }
+
+  // 2. Find the time entry linked to this task and update its duration
+  try {
+    const teResponse = await xero.projectApi.getTimeEntries(tenantId, xeroProjectId);
+    const linked = (teResponse.body?.items || []).filter(te => te.taskId === taskId);
+
+    if (linked.length > 0) {
+      // Update the first (and normally only) time entry for this task
+      await xero.projectApi.updateTimeEntry(tenantId, xeroProjectId, linked[0].timeEntryId, {
+        userId:      linked[0].userId,
+        taskId,
+        duration:    durationMinutes,
+        description: description || "Labor",
+        dateUtc:     new Date(date),
+      });
+      console.log(`[xeroService] ✓ Time entry duration updated — timeEntryId=${linked[0].timeEntryId}`);
+    } else {
+      console.warn(`[xeroService] No time entry found for task ${taskId} — duration not updated`);
+    }
+  } catch (err) {
+    // Non-fatal: task rate was already updated; log and continue
+    console.warn(`[xeroService] Could not update time entry for task ${taskId}:`, parseXeroError(err));
+  }
+
+  return taskId; // taskId is unchanged — stored xeroSyncId remains valid
+}
+
+/**
  * Deletes a Xero Project entry by its XERO_SYNC_ID.
  * Both Labor (TIME task) and Parts/Expense (FIXED task) entries store a taskId.
  * Accepts bare UUIDs (new format) or legacy "TIME:uuid"/"TASK:uuid" prefixed values.
@@ -622,12 +673,12 @@ async function syncMasterCostItemToXero({
   if (existingTaskId && !existingTaskId.startsWith("synced-")) {
     try {
       if (isLabor) {
-        // Safe update for Labor: delete task (cascades time entries) then recreate
-        await deleteProjectTask(xeroProjectId, existingTaskId);
-        const newTaskId = await createProjectTimeEntry({
-          xeroProjectId, description, hours, rate, date
-        });
-        return newTaskId || null;
+        // Update in place: update task rate/name + time entry duration.
+        // Xero blocks deletion of tasks that have time entries (greyed-out Delete
+        // in the UI; same constraint enforced by the API), so delete-then-recreate
+        // is not viable — it causes the create to run without the delete, producing
+        // a duplicate entry.
+        return await updateLaborTaskInPlace(xeroProjectId, existingTaskId, { description, hours, rate, date });
       } else {
         // Direct update for Parts/Expense
         await updateProjectTask(xeroProjectId, existingTaskId, { description, amount });
