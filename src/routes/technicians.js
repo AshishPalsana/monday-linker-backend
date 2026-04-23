@@ -11,6 +11,7 @@ router.use(requireAuth);
 router.get("/", requireAdmin, async (req, res, next) => {
   try {
     const technicians = await prisma.technician.findMany({
+      where: { isAdmin: false },
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true, isAdmin: true, burdenRate: true, createdAt: true },
     });
@@ -113,13 +114,23 @@ router.post("/sync-from-monday", requireAdmin, async (req, res, next) => {
 
       try {
         await monday.createTechnicianBoardItem({ name: user.name, email: user.email });
-        existingEmails.add(email); // prevent duplicates within the same run
+        existingEmails.add(email);
         results.created++;
         console.log(`[technicians/sync] ✓ Created board row for "${user.name}" (${user.email})`);
       } catch (err) {
         console.error(`[technicians/sync] ✗ Failed for "${user.name}":`, err.message);
         results.errors.push({ name: user.name, email: user.email, error: err.message });
       }
+
+      // Always upsert into DB so the page shows all synced technicians
+      // even before they log in for the first time
+      await prisma.technician.upsert({
+        where: { id: String(user.id) },
+        update: { name: user.name, ...(user.email ? { email: user.email } : {}) },
+        create: { id: String(user.id), name: user.name, email: user.email || null, isAdmin: false },
+      }).catch((err) =>
+        console.warn(`[technicians/sync] DB upsert failed for "${user.name}":`, err.message)
+      );
     }
 
     console.log(`[technicians/sync] Done — created=${results.created} skipped=${results.skipped} errors=${results.errors.length}`);

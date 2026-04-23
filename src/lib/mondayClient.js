@@ -862,7 +862,7 @@ async function getAllTechnicianBoardItems() {
             id
             name
             column_values(ids: ["${COL.TECHNICIANS.EMAIL}"]) {
-              id text
+              id text value
             }
           }
         }
@@ -870,11 +870,25 @@ async function getAllTechnicianBoardItems() {
     }
   `);
   const items = result?.boards?.[0]?.items_page?.items || [];
-  return items.map((item) => ({
-    mondayItemId: item.id,
-    name: item.name,
-    email: item.column_values.find((cv) => cv.id === COL.TECHNICIANS.EMAIL)?.text?.toLowerCase().trim() || "",
-  }));
+  return items.map((item) => {
+    const emailCol = item.column_values.find((cv) => cv.id === COL.TECHNICIANS.EMAIL);
+    const email = extractEmailFromColumn(emailCol);
+    return { mondayItemId: item.id, name: item.name, email };
+  });
+}
+
+// Extracts the actual email address from a Monday email column value.
+// Monday email columns store { email: "...", text: "display" } as JSON in value.
+// We prefer the parsed email field over the text field (display label).
+function extractEmailFromColumn(col) {
+  if (!col) return "";
+  if (col.value) {
+    try {
+      const parsed = JSON.parse(col.value);
+      if (parsed?.email) return parsed.email.toLowerCase().trim();
+    } catch (_) {}
+  }
+  return col.text?.toLowerCase().trim() || "";
 }
 
 /**
@@ -882,7 +896,9 @@ async function getAllTechnicianBoardItems() {
  */
 async function createTechnicianBoardItem({ name, email }) {
   const cv = {};
-  if (email) cv[COL.TECHNICIANS.EMAIL] = { email, text: name };
+  // Use email as display text so the Email column shows the address (not just the name),
+  // and so getTechnicianByEmail can match reliably against the text field.
+  if (email) cv[COL.TECHNICIANS.EMAIL] = { email, text: email };
 
   const result = await graphql(`
     mutation {
@@ -917,8 +933,7 @@ async function getTechnicianByEmail(email) {
               id
               name
               column_values(ids: ["${COL.TECHNICIANS.EMAIL}", "${COL.TECHNICIANS.HOURLY_RATE}"]) {
-                id
-                text
+                id text value
               }
             }
           }
@@ -926,9 +941,10 @@ async function getTechnicianByEmail(email) {
       }
     `);
     const items = result?.boards?.[0]?.items_page?.items || [];
+    const normalizedEmail = email.toLowerCase().trim();
     const match = items.find((item) => {
       const emailCol = item.column_values.find((cv) => cv.id === COL.TECHNICIANS.EMAIL);
-      return emailCol?.text?.toLowerCase().trim() === email.toLowerCase().trim();
+      return extractEmailFromColumn(emailCol) === normalizedEmail;
     });
     if (!match) return null;
     const rateCol = match.column_values.find((cv) => cv.id === COL.TECHNICIANS.HOURLY_RATE);
