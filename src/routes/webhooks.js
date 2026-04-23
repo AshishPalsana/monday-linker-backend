@@ -355,6 +355,25 @@ router.post("/monday/item-created", async (req, res, next) => {
         }
       }
 
+      // ── Customers board ─────────────────────────────────────────────────────
+      if (String(boardId) === custBoardId) {
+        if (event.type === "change_column_value" && event.columnId === String(COL.CUSTOMERS.XERO_SYNC_STATUS)) {
+          console.log(`[webhook] Manual Xero sync triggered for customer ${pulseId}`);
+
+          res.status(200).send("OK");
+
+          setImmediate(async () => {
+            try {
+              await resolveXeroContact(pulseId);
+              console.log(`[webhook] ✓ Manual sync completed for customer ${pulseId}`);
+            } catch (err) {
+              console.error(`[webhook] ✗ Manual sync failed for customer ${pulseId}:`, err.message);
+            }
+          });
+          return;
+        }
+      }
+
       return res.status(200).send("OK");
     }
 
