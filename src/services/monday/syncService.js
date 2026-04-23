@@ -39,9 +39,10 @@ async function syncTimeEntryToCost(timeEntryId) {
     const date = toCSTDateString(entry.clockOut);
     const description = `${entry.entryType}: ${quantity}h by ${entry.technician.name}`;
 
-    // Look up the Technicians board item ID so the board_relation column can be set
-    let technicianBoardItemId = null;
-    if (entry.technician?.email) {
+    // Use the stored Technicians board item ID (set on login) for the board_relation column.
+    // Fall back to a live lookup if not yet stored (e.g. technician hasn't re-logged in since migration).
+    let technicianBoardItemId = entry.technician?.mondayItemId ?? null;
+    if (!technicianBoardItemId && entry.technician?.email) {
       try {
         const techItem = await monday.getTechnicianByEmail(entry.technician.email);
         technicianBoardItemId = techItem?.mondayItemId ?? null;

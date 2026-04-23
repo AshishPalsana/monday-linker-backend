@@ -14,14 +14,15 @@ datasource db {
 // Technician — sourced from Monday.com identity
 // ─────────────────────────────────────────────
 model Technician {
-  id          String      @id  // monday.com user ID (string from SDK context)
-  name        String
-  email       String?     @unique
-  burdenRate  Decimal     @default(0.00) @db.Decimal(10, 2)
-  billingRate Decimal     @default(85.00) @db.Decimal(10, 2)
-  isAdmin     Boolean     @default(false)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id            String      @id  // monday.com user ID (string from SDK context)
+  name          String
+  email         String?     @unique
+  mondayItemId  String?     // Technicians board item ID (for board_relation columns)
+  burdenRate    Decimal     @default(0.00) @db.Decimal(10, 2)
+  billingRate   Decimal     @default(85.00) @db.Decimal(10, 2)
+  isAdmin       Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   timeEntries TimeEntry[]
 

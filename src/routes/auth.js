@@ -57,15 +57,19 @@ router.post(
       if (email) {
         getTechnicianByEmail(email)
           .then(async (boardData) => {
-            if (boardData?.hourlyRate > 0) {
+            if (!boardData) return;
+            const update = {};
+            if (boardData.hourlyRate > 0) update.burdenRate = boardData.hourlyRate;
+            if (boardData.mondayItemId)  update.mondayItemId = boardData.mondayItemId;
+            if (Object.keys(update).length) {
               await prisma.technician.update({
                 where: { id: String(mondayUserId) },
-                data: { burdenRate: boardData.hourlyRate },
+                data: update,
               });
-              console.log(`[auth] Synced burdenRate=$${boardData.hourlyRate} for ${name}`);
+              console.log(`[auth] Synced boardData for ${name}:`, update);
             }
           })
-          .catch((err) => console.warn(`[auth] burdenRate sync failed for ${name}:`, err.message));
+          .catch((err) => console.warn(`[auth] board sync failed for ${name}:`, err.message));
       }
 
       const token = jwt.sign(
