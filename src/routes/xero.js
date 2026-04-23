@@ -105,14 +105,26 @@ router.get("/callback", async (req, res) => {
         <body style="font-family:sans-serif;padding:40px;text-align:center;">
           <h2 style="color:#2e7d32;">&#10003; Xero Connected Successfully</h2>
           <p>Organisation: <strong>${activeTenant.tenantName}</strong></p>
-          <p>This window will close automatically...</p>
+          <p id="msg">This window will close automatically...</p>
+          <button id="closeBtn" onclick="window.close()" style="display:none;margin-top:16px;padding:10px 24px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;">
+            Close this window
+          </button>
           <script>
-            try {
-              if (window.opener) {
-                window.opener.postMessage({ type: 'xero_connected' }, '*');
-              }
-            } catch(e) {}
-            setTimeout(() => window.close(), 1500);
+            // Notify the opener so it can refresh Xero status immediately
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({ type: 'xero_connected' }, '*');
+            }
+            // Try to close synchronously — most browsers allow this for
+            // windows opened via window.open()
+            window.close();
+            // If we're still here after 300ms, the browser blocked the close.
+            // Show a manual close button instead.
+            setTimeout(function() {
+              var btn = document.getElementById('closeBtn');
+              var msg = document.getElementById('msg');
+              if (btn) btn.style.display = 'inline-block';
+              if (msg) msg.textContent = 'Your browser blocked auto-close. Please close this window manually.';
+            }, 300);
           </script>
         </body>
       </html>
