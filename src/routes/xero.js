@@ -97,18 +97,23 @@ router.get("/callback", async (req, res) => {
     });
 
     console.log(`[xero] ✓ Connected — tenant: ${activeTenant.tenantName}`);
-    const origin = req.headers.origin || (process.env.NODE_ENV === 'production' ? 'https://app.yourdomain.com' : 'http://localhost:5173');
+    // The connect flow opens in a popup. Post a message to the opener so the
+    // parent app can refresh its Xero status, then close this window.
     res.send(`
       <html>
-        <head>
-          <meta http-equiv="refresh" content="3;url=${origin}/#/settings/integrations?success=true">
-        </head>
+        <head><title>Xero Connected</title></head>
         <body style="font-family:sans-serif;padding:40px;text-align:center;">
-          <h2 style="color:#2e7d32;">✅ Xero Connected Successfully</h2>
+          <h2 style="color:#2e7d32;">&#10003; Xero Connected Successfully</h2>
           <p>Organisation: <strong>${activeTenant.tenantName}</strong></p>
-          <p>Redirecting back to the app in 3 seconds...</p>
-          <br/>
-          <a href="${origin}/#/settings/integrations?success=true" style="color:#13b5ea;text-decoration:none;font-weight:600;">Click here if you are not redirected automatically</a>
+          <p>This window will close automatically...</p>
+          <script>
+            try {
+              if (window.opener) {
+                window.opener.postMessage({ type: 'xero_connected' }, '*');
+              }
+            } catch(e) {}
+            setTimeout(() => window.close(), 1500);
+          </script>
         </body>
       </html>
     `);
