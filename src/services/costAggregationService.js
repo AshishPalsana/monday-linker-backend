@@ -86,7 +86,7 @@ async function aggregateWorkOrderCosts(workOrderId) {
         const quantity    = parseFloat(qtyCol?.text || 0);
         const rate        = parseFloat(rateCol?.text || 0);
         const totalCost   = parseFloat(totalCol?.text || 0) || parseFloat((quantity * rate).toFixed(2));
-        const date        = dateCol?.text || new Date().toISOString().split("T")[0];
+        const date        = dateCol?.text || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
         const description = item.name || descCol?.text || "Project Cost";
 
         try {

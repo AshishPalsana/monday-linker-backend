@@ -1,3 +1,9 @@
+// Pin the process timezone to CST/CDT before any other module runs.
+// This ensures all new Date() calls, date formatting, and cron logic
+// operate in the correct US Central timezone regardless of where the
+// server is hosted (Render, AWS, etc. default to UTC).
+process.env.TZ = "America/Chicago";
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");

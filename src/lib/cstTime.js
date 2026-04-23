@@ -1,17 +1,10 @@
 
 const TZ = "America/Chicago";
 
-function getCSTDayBounds(dateStr) {
-  // Use UTC-based day boundaries. Technicians work 7 AM–6 PM CDT which maps
-  // to 12 PM–11 PM UTC — always within the same UTC calendar day — so UTC
-  // bounds are equivalent to CST bounds for normal working hours and avoid
-  // mismatches when the server or client is in a different timezone (e.g. IST).
-  const isoDate = dateStr ?? new Date().toISOString().split("T")[0];
-  const dayStart = new Date(`${isoDate}T00:00:00.000Z`);
-  const dayEnd   = new Date(`${isoDate}T23:59:59.999Z`);
-  return { dayStart, dayEnd };
-}
-
+/**
+ * Returns the current CST/CDT offset string, e.g. "-05:00" (CDT) or "-06:00" (CST).
+ * Respects daylight saving automatically via Intl.
+ */
 function getCSTOffset(date) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: TZ,
@@ -26,11 +19,41 @@ function getCSTOffset(date) {
   return `${sign}${String(Math.abs(hours)).padStart(2, "0")}:00`;
 }
 
+/**
+ * Returns today's date string in CST/CDT as "YYYY-MM-DD".
+ * Safe to use even when the server is running in UTC.
+ */
+function getCSTTodayDate() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
+}
+
+/**
+ * Returns the start/end of a CST calendar day as UTC Date objects.
+ * Uses CST midnight boundaries — NOT UTC midnight — so entries at
+ * 11 PM or later CST are correctly included in that CST day.
+ *
+ * @param {string} [dateStr] - "YYYY-MM-DD" in CST. Defaults to today in CST.
+ */
+function getCSTDayBounds(dateStr) {
+  const isoDate = dateStr ?? getCSTTodayDate();
+  const offset  = getCSTOffset(new Date(`${isoDate}T12:00:00Z`));
+  const dayStart = new Date(`${isoDate}T00:00:00.000${offset}`);
+  const dayEnd   = new Date(`${isoDate}T23:59:59.999${offset}`);
+  return { dayStart, dayEnd };
+}
+
+/**
+ * Returns start/end of a CST date range as UTC Date objects.
+ *
+ * @param {string} from - "YYYY-MM-DD" in CST
+ * @param {string} to   - "YYYY-MM-DD" in CST
+ */
 function getCSTRangeBounds(from, to) {
-  const offset = getCSTOffset(new Date(`${from}T12:00:00Z`));
-  const rangeStart = new Date(`${from}T00:00:00.000${offset}`);
-  const rangeEnd   = new Date(`${to}T23:59:59.999${offset}`);
+  const offsetFrom = getCSTOffset(new Date(`${from}T12:00:00Z`));
+  const offsetTo   = getCSTOffset(new Date(`${to}T12:00:00Z`));
+  const rangeStart = new Date(`${from}T00:00:00.000${offsetFrom}`);
+  const rangeEnd   = new Date(`${to}T23:59:59.999${offsetTo}`);
   return { rangeStart, rangeEnd };
 }
 
-module.exports = { getCSTDayBounds, getCSTRangeBounds };
+module.exports = { getCSTDayBounds, getCSTRangeBounds, getCSTTodayDate, getCSTOffset };

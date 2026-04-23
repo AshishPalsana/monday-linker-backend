@@ -1,5 +1,10 @@
 const prisma = require("../../lib/prisma");
 const monday = require("../../lib/mondayClient");
+const { getCSTOffset } = require("../../lib/cstTime");
+
+function toCSTDateString(date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(date);
+}
 
 /**
  * Syncs a Time Entry to the Master Costs board.
@@ -31,7 +36,7 @@ async function syncTimeEntryToCost(timeEntryId) {
     const quantity = parseFloat(entry.hoursWorked || 0);
     const rate = parseFloat(entry.technician.burdenRate || 0);
     const totalCost = quantity * rate;
-    const date = entry.clockOut.toISOString().split("T")[0];
+    const date = toCSTDateString(entry.clockOut);
     const description = `${entry.entryType}: ${quantity}h by ${entry.technician.name}`;
 
     if (entry.masterCostItemId) {
@@ -99,7 +104,7 @@ async function syncExpenseToCost(expenseId) {
     const quantity = 1;
     const rate = parseFloat(expense.amount);
     const totalCost = rate;
-    const date = expense.createdAt.toISOString().split("T")[0];
+    const date = toCSTDateString(expense.createdAt);
     const description = `${expense.type}: ${expense.details || ""} (by ${expense.timeEntry.technician.name})`;
 
     if (expense.masterCostItemId) {

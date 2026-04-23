@@ -1,7 +1,26 @@
 
 const axios = require("axios");
+const { getCSTOffset } = require("./cstTime");
 
 const MONDAY_API_URL = "https://api.monday.com/v2";
+
+/**
+ * Formats a JS Date to CST date ("YYYY-MM-DD") and time ("HH:MM:SS")
+ * for Monday.com column values. Monday stores whatever date+time you
+ * send as-is, so always send CST local time.
+ */
+function toCSTDateParts(date) {
+  const TZ = "America/Chicago";
+  const datePart = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(date);
+  const timePart = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+  return { date: datePart, time: timePart };
+}
 
 // ── Board / Column constants ────────────────────────────
 const BOARD = {
@@ -199,11 +218,9 @@ async function createTimeEntryItem({
 
   const cv = {};
 
-  // Clock In Time
-  cv[COL.TIME_ENTRIES.CLOCK_IN] = {
-    date: clockIn.toISOString().split("T")[0],
-    time: clockIn.toISOString().split("T")[1].split(".")[0],
-  };
+  // Clock In Time — send CST local time so Monday displays the correct hour
+  const clockInCST = toCSTDateParts(clockIn);
+  cv[COL.TIME_ENTRIES.CLOCK_IN] = { date: clockInCST.date, time: clockInCST.time };
 
   // Task Type dropdown
   const labelMap = {
@@ -270,10 +287,9 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
 
   const cv = {};
 
-  cv[COL.TIME_ENTRIES.CLOCK_OUT] = {
-    date: clockOut.toISOString().split("T")[0],
-    time: clockOut.toISOString().split("T")[1].split(".")[0],
-  };
+  // Clock Out Time — send CST local time so Monday displays the correct hour
+  const clockOutCST = toCSTDateParts(clockOut);
+  cv[COL.TIME_ENTRIES.CLOCK_OUT] = { date: clockOutCST.date, time: clockOutCST.time };
 
   cv[COL.TIME_ENTRIES.TOTAL_HOURS] = String(hoursWorked);
 
