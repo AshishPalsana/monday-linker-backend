@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const prisma = require("../lib/prisma");
 const { validate } = require("../middleware/validate");
+const { getTechnicianByEmail } = require("../lib/mondayClient");
 
 const router = express.Router();
 
@@ -51,6 +52,21 @@ router.post(
           isAdmin: Boolean(isAdmin),
         },
       });
+
+      // Sync hourly rate from the Technicians board (non-blocking — login never fails here)
+      if (email) {
+        getTechnicianByEmail(email)
+          .then(async (boardData) => {
+            if (boardData?.hourlyRate > 0) {
+              await prisma.technician.update({
+                where: { id: String(mondayUserId) },
+                data: { burdenRate: boardData.hourlyRate },
+              });
+              console.log(`[auth] Synced burdenRate=$${boardData.hourlyRate} for ${name}`);
+            }
+          })
+          .catch((err) => console.warn(`[auth] burdenRate sync failed for ${name}:`, err.message));
+      }
 
       const token = jwt.sign(
         {

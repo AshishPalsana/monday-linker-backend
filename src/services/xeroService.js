@@ -710,6 +710,66 @@ async function syncMasterCostItemToXero({
   }
 }
 
+/**
+ * Creates a draft invoice (ACCREC) in Xero for a Work Order.
+ *
+ * @param {object} params
+ * @param {string} params.xeroContactId  - Xero Contact UUID for the customer
+ * @param {string} params.reference      - e.g. "WO-1042"
+ * @param {Array}  params.lineItems      - [{ description, quantity, unitPrice, type }]
+ * @param {Date}   [params.dueDate]      - Invoice due date (default: 30 days from now)
+ *
+ * @returns {{ invoiceId: string, invoiceNumber: string, invoiceUrl: string }}
+ */
+async function createXeroInvoice({ xeroContactId, reference, lineItems, dueDate }) {
+  console.log(`[xeroService] createXeroInvoice — contact=${xeroContactId} ref=${reference} items=${lineItems.length}`);
+
+  const { xero, tenantId } = await getAuthenticatedClient();
+
+  const due = dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Net 30
+
+  // Map account codes by line item type so revenue is categorised correctly in Xero.
+  // Defaults to 200 (Sales) if no matching code; override these to match your Xero
+  // chart of accounts.
+  const ACCOUNT_CODES = { Labor: "200", Parts: "200", Expense: "200" };
+
+  const xeroLineItems = lineItems.map((item) => ({
+    description: item.description || item.type,
+    quantity:    parseFloat(item.quantity) || 1,
+    unitAmount:  parseFloat(item.unitPrice) || 0,
+    accountCode: ACCOUNT_CODES[item.type] || "200",
+  }));
+
+  let response;
+  try {
+    response = await xero.accountingApi.createInvoices(tenantId, {
+      invoices: [{
+        type:      "ACCREC",
+        contact:   { contactID: xeroContactId },
+        lineItems: xeroLineItems,
+        date:      new Date(),
+        dueDate:   due,
+        reference,
+        status:    "DRAFT",
+      }],
+    });
+  } catch (err) {
+    throw new Error(`Xero createInvoice failed: ${parseXeroError(err)}`);
+  }
+
+  const inv = response.body?.invoices?.[0];
+  if (!inv?.invoiceID) {
+    throw new Error("Xero createInvoice returned no invoiceID.");
+  }
+
+  console.log(`[xeroService] ✓ Xero Invoice created — invoiceID=${inv.invoiceID} number=${inv.invoiceNumber}`);
+  return {
+    invoiceId:     inv.invoiceID,
+    invoiceNumber: inv.invoiceNumber || "",
+    invoiceUrl:    `https://go.xero.com/AccountsReceivable/Edit.aspx?InvoiceID=${inv.invoiceID}`,
+  };
+}
+
 module.exports = {
   createXeroProject,
   updateXeroProjectStatus,
@@ -720,6 +780,7 @@ module.exports = {
   deleteProjectTask,
   deleteXeroSyncEntry,
   syncMasterCostItemToXero,
+  createXeroInvoice,
   tryAcquireSyncLock,
   releaseSyncLock,
   getAuthenticatedClient,

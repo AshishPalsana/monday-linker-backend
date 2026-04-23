@@ -24,13 +24,14 @@ function toCSTDateParts(date) {
 
 // ── Board / Column constants ────────────────────────────
 const BOARD = {
-  WORK_ORDERS: "18402613691",
-  TIME_ENTRIES: "18406939306",
-  EXPENSES: "18406939432",
-  CUSTOMERS: "18400951947",
-  LOCATIONS: "18400965227",
-  MASTER_COSTS: "18407330739",
+  WORK_ORDERS:   "18402613691",
+  TIME_ENTRIES:  "18406939306",
+  EXPENSES:      "18406939432",
+  CUSTOMERS:     "18400951947",
+  LOCATIONS:     "18400965227",
+  MASTER_COSTS:  "18407330739",
   INVOICE_ITEMS: "18403393439",
+  TECHNICIANS:   "18401479312",
 };
 
 
@@ -106,6 +107,14 @@ const COL = {
     INVOICE_ID: "text_mm1ay1cy",
     DESCRIPTION: "long_text_mm1cdk36",
     REVENUE_ACCOUNT: "color_mm1csz5m",
+  },
+  TECHNICIANS: {
+    STATUS:      "color_mm0w8tnj",
+    EMAIL:       "email_mm0w15ry",
+    HOURLY_RATE: "numeric_mm0wgqn1",
+    POSITION:    "dropdown_mm0w3f6c",
+    PHONE:       "phone_mm0w2yzw",
+    EMPLOYEE_ID: "text_mm0wb6v3",
   },
 };
 
@@ -822,6 +831,65 @@ async function getLocationsBoardData() {
   return result.boards?.[0] || null;
 }
 
+/**
+ * Looks up a technician on the Technicians board by email and returns
+ * their hourly rate. Used at login to sync burdenRate to the DB.
+ * Returns null (never throws) so login is never blocked by this lookup.
+ */
+async function getTechnicianByEmail(email) {
+  if (!email) return null;
+  try {
+    const result = await graphql(`
+      {
+        boards(ids: [${BOARD.TECHNICIANS}]) {
+          items_page(limit: 200) {
+            items {
+              id
+              name
+              column_values(ids: ["${COL.TECHNICIANS.EMAIL}", "${COL.TECHNICIANS.HOURLY_RATE}"]) {
+                id
+                text
+              }
+            }
+          }
+        }
+      }
+    `);
+    const items = result?.boards?.[0]?.items_page?.items || [];
+    const match = items.find((item) => {
+      const emailCol = item.column_values.find((cv) => cv.id === COL.TECHNICIANS.EMAIL);
+      return emailCol?.text?.toLowerCase().trim() === email.toLowerCase().trim();
+    });
+    if (!match) return null;
+    const rateCol = match.column_values.find((cv) => cv.id === COL.TECHNICIANS.HOURLY_RATE);
+    return {
+      mondayItemId: match.id,
+      name: match.name,
+      hourlyRate: parseFloat(rateCol?.text || 0),
+    };
+  } catch (err) {
+    console.warn(`[mondayClient] getTechnicianByEmail failed:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Writes the Xero Invoice ID back onto an Invoice Line Item so it's
+ * visible on the Monday board and avoids re-invoicing the same item.
+ */
+async function updateInvoiceItemXeroId(itemId, xeroInvoiceId) {
+  const cv = { [COL.INVOICE_ITEMS.INVOICE_ID]: xeroInvoiceId };
+  await graphql(`
+    mutation {
+      change_multiple_column_values(
+        board_id: ${BOARD.INVOICE_ITEMS},
+        item_id: ${itemId},
+        column_values: "${esc(JSON.stringify(cv))}"
+      ) { id }
+    }
+  `);
+}
+
 module.exports = {
   setWorkOrderExecutionStatus,
   setWorkOrderInProgress,
@@ -846,6 +914,8 @@ module.exports = {
   deleteMasterCostItem,
   createInvoiceItem,
   setInvoiceItemStatus,
+  getTechnicianByEmail,
+  updateInvoiceItemXeroId,
   updateCustomerXeroStatus,
   updateCustomerXeroId,
   updateCustomerBillingDetails,
@@ -1270,9 +1340,7 @@ async function createInvoiceItem({
   cv[INV.QUANTITY] = quantity;
   cv[INV.UNIT_PRICE] = unitPrice;
   if (description) cv[INV.DESCRIPTION] = { text: description };
-
-  const typeId = type === "Labor" ? 1 : 2;
-  cv[INV.ITEM_TYPE] = { ids: [typeId] };
+  if (type) cv[INV.ITEM_TYPE] = { labels: [type] };
 
   const result = await graphql(`
     mutation {

@@ -110,7 +110,7 @@ router.post(
         totalCost,
         description: description || "",
         date: date || null,
-        mondayUserId: req.technician.mondayUserId || null,
+        mondayUserId: req.technician.id || null,
       });
 
       // 2. Trigger Xero sync immediately.

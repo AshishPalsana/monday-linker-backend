@@ -533,6 +533,73 @@ router.post("/monday/item-created", async (req, res, next) => {
       return;
     }
 
+    // ── Invoice Line Items board ──────────────────────────────────────────────
+    if (String(boardId) === String(BOARD.INVOICE_ITEMS)) {
+      // Only care about new items — column changes are not actionable here
+      if (event.type !== "create_pulse") {
+        return res.status(200).send("Ignored");
+      }
+
+      console.log(`[webhook] Invoice Line Item created — pulse ${pulseId}`);
+      res.status(200).send("OK");
+
+      setImmediate(async () => {
+        // Grace period: if this item was created by our billing route, the Xero invoice ID
+        // will be written back within a few seconds. Wait 10s then check.
+        // Items still missing the ID after this window were created manually in Monday.
+        await new Promise((r) => setTimeout(r, 10000));
+
+        try {
+          const result = await graphql(`
+            query {
+              items(ids: [${pulseId}]) {
+                name
+                column_values(ids: [
+                  "${COL.INVOICE_ITEMS.INVOICE_ID}",
+                  "${COL.INVOICE_ITEMS.BILLING_STATUS}",
+                  "${COL.INVOICE_ITEMS.WORK_ORDERS_REL}"
+                ]) {
+                  id text value
+                  ... on BoardRelationValue { linked_item_ids }
+                }
+              }
+            }
+          `);
+
+          const item = result?.items?.[0];
+          if (!item) {
+            console.warn(`[webhook] Invoice Item ${pulseId} not found after grace period`);
+            return;
+          }
+
+          const xeroInvoiceId = item.column_values.find(
+            (c) => c.id === COL.INVOICE_ITEMS.INVOICE_ID
+          )?.text?.trim();
+
+          if (xeroInvoiceId) {
+            // Billing route already handled this item — Xero invoice ID is written back
+            console.log(`[webhook] ✓ Invoice Item ${pulseId} ("${item.name}") — Xero invoice ${xeroInvoiceId} confirmed`);
+            return;
+          }
+
+          // No Xero invoice ID after grace period — item was created directly in Monday,
+          // not via the Prepare Invoice flow. Log clearly so the admin knows to act.
+          const relCol = item.column_values.find((c) => c.id === COL.INVOICE_ITEMS.WORK_ORDERS_REL);
+          const linkedWoId = relCol?.linked_item_ids?.[0] || null;
+
+          console.warn(
+            `[webhook] ⚠ Invoice Line Item ${pulseId} ("${item.name}") was created directly in Monday ` +
+            `(no Xero invoice ID). Work Order: ${linkedWoId || "not linked"}. ` +
+            `Use the Prepare Invoice button in the app to properly sync this to Xero.`
+          );
+        } catch (err) {
+          console.error(`[webhook] Invoice Item grace-period check failed for pulse ${pulseId}:`, err.message);
+        }
+      });
+
+      return;
+    }
+
     console.log(`[webhook] Ignoring — event is for unmonitored board ${boardId}`);
     return res.status(200).send("Ignored");
   } catch (error) {
