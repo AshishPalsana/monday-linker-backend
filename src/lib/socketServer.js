@@ -90,11 +90,10 @@ function attachSocketIO(app) {
 
     // ── Admin: fetch TimeBoard data by date range ──────────────────────────
     socket.on("board:request", async ({ from, to } = {}) => {
-      // Temporarily disabled for testing — admin check bypassed
-      // if (role !== "admin") {
-      //   socket.emit("board:error", { message: "Admin access required to view the Time Board." });
-      //   return;
-      // }
+      if (role !== "admin") {
+        socket.emit("board:error", { message: "Admin access required to view the Time Board." });
+        return;
+      }
       if (!from || !to) return;
       try {
         const { rangeStart, rangeEnd } = getCSTRangeBounds(from, to);

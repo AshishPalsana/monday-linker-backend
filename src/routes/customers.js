@@ -3,12 +3,17 @@ const router = express.Router();
 const prisma = require("../lib/prisma");
 const { body } = require("express-validator");
 const { combineAddress } = require("../utils/addressUtils");
-// const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const { syncCustomerToXero } = require("../services/customerSyncService");
-const { updateCustomerBillingDetails, updateCustomerXeroStatus } = require("../lib/mondayClient");
-
-const { getCustomerDetails } = require("../lib/mondayClient");
+const { createXeroContact } = require("../services/xeroService");
+const {
+  getCustomerDetails,
+  getAllCustomers,
+  updateCustomerBillingDetails,
+  updateCustomerXeroStatus,
+  updateCustomerXeroId,
+} = require("../lib/mondayClient");
 
 // router.use(requireAuth);
 
@@ -148,6 +153,134 @@ router.post("/:id/retry", async (req, res, next) => {
     setImmediate(() => syncCustomerToXero(pulseId));
 
     res.json({ success: true, message: "Sync retry initiated." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/customers/sync-all
+ * Backfills Xero Contact IDs for every customer already on the Monday Customers board.
+ * Safe to call repeatedly — skips any customer that already has a valid xeroContactId in DB.
+ * For customers that exist in Xero, the lookup-before-create logic in createXeroContact
+ * finds them by account number or name instead of creating duplicates.
+ */
+router.post("/sync-all", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const mondayCustomers = await getAllCustomers();
+    if (!mondayCustomers.length) {
+      return res.json({ data: { synced: 0, skipped: 0, errors: [] } });
+    }
+
+    // Load all existing DB records in one query for fast lookup
+    const dbRecords = await prisma.customer.findMany({
+      select: { id: true, xeroContactId: true },
+    });
+    const dbMap = new Map(dbRecords.map((r) => [r.id, r.xeroContactId]));
+
+    const results = { synced: 0, skipped: 0, errors: [] };
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    for (const cust of mondayCustomers) {
+      const custId = String(cust.id);
+
+      // Skip if DB already has a valid Xero UUID (guards against "[object Object]" corruption)
+      const existingXeroId = dbMap.get(custId);
+      if (existingXeroId && UUID_RE.test(existingXeroId)) {
+        results.skipped++;
+        continue;
+      }
+
+      // If Monday board column already has a valid Xero Contact ID (manually entered),
+      // trust it — store to DB without calling Xero
+      if (cust.xeroContactId && UUID_RE.test(cust.xeroContactId)) {
+        await prisma.customer.upsert({
+          where: { id: custId },
+          update: { xeroContactId: cust.xeroContactId, xeroSyncStatus: "Synced", syncErrorMessage: null, lastSyncAt: new Date() },
+          create: {
+            id: custId,
+            name: cust.name,
+            email: cust.email || null,
+            phone: cust.phone || null,
+            accountNumber: cust.accountNumber || null,
+            xeroContactId: cust.xeroContactId,
+            xeroSyncStatus: "Synced",
+            lastSyncAt: new Date(),
+          },
+        }).catch(() => {});
+        results.skipped++;
+        continue;
+      }
+
+      if (!cust.name) {
+        results.errors.push({ id: custId, name: "(no name)", error: "Skipped — item has no name" });
+        continue;
+      }
+
+      try {
+        const syncResult = await createXeroContact({
+          name: cust.name,
+          email: cust.email || undefined,
+          phone: cust.phone || undefined,
+          accountNumber: cust.accountNumber || undefined,
+          address: cust.address || undefined,
+          country: "USA",
+        });
+
+        const xeroContactId   = syncResult.contactId;
+        const xeroAccountNumber = syncResult.accountNumber || cust.accountNumber;
+
+        // Persist to DB
+        await prisma.customer.upsert({
+          where: { id: custId },
+          update: {
+            xeroContactId,
+            accountNumber: xeroAccountNumber || undefined,
+            xeroSyncStatus: "Synced",
+            syncErrorMessage: null,
+            lastSyncAt: new Date(),
+          },
+          create: {
+            id: custId,
+            name: cust.name,
+            email: cust.email || null,
+            phone: cust.phone || null,
+            accountNumber: xeroAccountNumber || null,
+            xeroContactId,
+            xeroSyncStatus: "Synced",
+            lastSyncAt: new Date(),
+          },
+        });
+
+        // Write Xero Contact ID and status back to Monday board
+        await updateCustomerXeroId(custId, xeroContactId).catch(() => {});
+        await updateCustomerXeroStatus(custId, "Synced").catch(() => {});
+
+        console.log(`[customers/sync-all] ✓ ${cust.name} → ${xeroContactId}`);
+        results.synced++;
+      } catch (err) {
+        console.error(`[customers/sync-all] ✗ ${cust.name}:`, err.message);
+        results.errors.push({ id: custId, name: cust.name, error: err.message });
+
+        await prisma.customer.upsert({
+          where: { id: custId },
+          update: { xeroSyncStatus: "Failed", syncErrorMessage: err.message, lastSyncAt: new Date() },
+          create: {
+            id: custId,
+            name: cust.name,
+            email: cust.email || null,
+            xeroSyncStatus: "Failed",
+            syncErrorMessage: err.message,
+            lastSyncAt: new Date(),
+          },
+        }).catch(() => {});
+
+        await updateCustomerXeroStatus(custId, "Error").catch(() => {});
+      }
+    }
+
+    console.log(`[customers/sync-all] Done — synced=${results.synced} skipped=${results.skipped} errors=${results.errors.length}`);
+    res.json({ data: results });
   } catch (err) {
     next(err);
   }

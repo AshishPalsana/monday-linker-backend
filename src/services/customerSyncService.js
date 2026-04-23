@@ -35,7 +35,7 @@ async function syncCustomerToXero(pulseId) {
     }
 
     // 3. Perform Xero Sync (Idempotent)
-    const xeroContactId = await xeroService.createXeroContact({
+    const syncResult = await xeroService.createXeroContact({
       name: customer.name,
       email: customer.email,
       phone: customer.phone,
@@ -48,6 +48,8 @@ async function syncCustomerToXero(pulseId) {
       accountNumber: customer.accountNumber,
       xeroContactId: customer.xeroContactId
     });
+    const xeroContactId   = syncResult.contactId;
+    const xeroAccountNumber = syncResult.accountNumber || customer.accountNumber;
 
     // 4. Update Database (Atomic Check)
     // We only update if the syncVersion hasn't changed while we were talking to Xero
@@ -58,7 +60,8 @@ async function syncCustomerToXero(pulseId) {
       },
       data: {
         xeroSyncStatus: "Synced",
-        xeroContactId: xeroContactId,
+        xeroContactId,
+        accountNumber: xeroAccountNumber || undefined,
         syncErrorMessage: null,
         syncErrorCode: null,
         lastSyncAt: new Date(),

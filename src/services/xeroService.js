@@ -326,6 +326,42 @@ async function createXeroContact({
   };
 
   const syncTask = async () => {
+    // ── Lookup-before-create: only runs when we don't already have a known contact ID ──
+    // Skip this when xeroContactId is provided — that means we're on the update path and
+    // already know exactly which contact to hit.
+    if (!xeroContactId) {
+      // 1. Search by account number (most precise — avoids any name ambiguity)
+      if (accountNumber) {
+        try {
+          const searchResp = await xero.accountingApi.getContacts(
+            tenantId, undefined, `AccountNumber=="${accountNumber}"`
+          );
+          const found = searchResp.body?.contacts?.[0];
+          if (found?.contactID) {
+            console.log(`[xeroService] Found existing Xero contact by AccountNumber "${accountNumber}" → ${found.contactID}`);
+            return { contactId: found.contactID, accountNumber: found.accountNumber };
+          }
+        } catch (_) { /* non-fatal — fall through */ }
+      }
+
+      // 2. Search by exact name (fallback)
+      if (name) {
+        try {
+          const safeName = name.replace(/'/g, "''");
+          const searchResp = await xero.accountingApi.getContacts(
+            tenantId, undefined, `Name=="${safeName}"`
+          );
+          const found = searchResp.body?.contacts?.find(
+            (c) => c.name?.toLowerCase() === name.toLowerCase()
+          );
+          if (found?.contactID) {
+            console.log(`[xeroService] Found existing Xero contact by Name "${name}" → ${found.contactID}`);
+            return { contactId: found.contactID, accountNumber: found.accountNumber };
+          }
+        } catch (_) { /* non-fatal — fall through */ }
+      }
+    }
+
     console.log(`[xeroService] Calling createContacts — tenantId=${tenantId} name="${name}"`);
       try {
         const response = await xero.accountingApi.createContacts(tenantId, {
@@ -422,9 +458,9 @@ async function createXeroContact({
       }
   };
 
-  // 10s Timeout Guard
+  // 20s Timeout Guard (covers up to 2 lookup calls + 1 create call)
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error("TIMEOUT: Xero API took longer than 10s")), 10000);
+    setTimeout(() => reject(new Error("TIMEOUT: Xero API took longer than 20s")), 20000);
   });
 
   try {

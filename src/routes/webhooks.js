@@ -48,6 +48,7 @@ async function resolveXeroContact(customerId) {
 
   // 3. Create/find in Xero (createXeroContact handles duplicate-name conflicts)
   let xeroContactId;
+  let finalAccountNumber;
   try {
     const syncResult = await xeroService.createXeroContact({
       name: cust.name,
@@ -62,7 +63,7 @@ async function resolveXeroContact(customerId) {
       country: existing?.country || "USA",
     });
     xeroContactId = syncResult.contactId;
-    const finalAccountNumber = syncResult.accountNumber || cust.accountNumber;
+    finalAccountNumber = syncResult.accountNumber || cust.accountNumber;
   } catch (xeroErr) {
     console.error(`[webhook] Xero contact creation failed for customer ${custId}:`, xeroErr.message);
 

@@ -770,6 +770,49 @@ async function getCustomerDetails(itemId) {
     address: cv(COL.CUSTOMERS.BILLING_ADDRESS),
   };
 }
+
+/**
+ * Fetches all items from the Customers board.
+ * Returns an array of { id, name, accountNumber, email, phone, address, xeroContactId }.
+ */
+async function getAllCustomers() {
+  const result = await graphql(`
+    {
+      boards(ids: [${BOARD.CUSTOMERS}]) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "${COL.CUSTOMERS.ACCOUNT_NUMBER}",
+              "${COL.CUSTOMERS.EMAIL}",
+              "${COL.CUSTOMERS.PHONE}",
+              "${COL.CUSTOMERS.BILLING_ADDRESS}",
+              "${COL.CUSTOMERS.XERO_CONTACT_ID}"
+            ]) {
+              id text value
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  const items = result?.boards?.[0]?.items_page?.items || [];
+  return items.map((item) => {
+    const cv = (id) => item.column_values.find((c) => c.id === id)?.text || "";
+    return {
+      id:             item.id,
+      name:           item.name,
+      accountNumber:  cv(COL.CUSTOMERS.ACCOUNT_NUMBER),
+      email:          cv(COL.CUSTOMERS.EMAIL),
+      phone:          cv(COL.CUSTOMERS.PHONE),
+      address:        cv(COL.CUSTOMERS.BILLING_ADDRESS),
+      xeroContactId:  cv(COL.CUSTOMERS.XERO_CONTACT_ID),
+    };
+  });
+}
+
 /**
  * Fetches the full Board structure for Locations, mirroring the frontend's FETCH_BOARD_DATA.
  */
@@ -1064,6 +1107,7 @@ module.exports = {
   getWorkOrderDetails,
   getLocationDetails,
   getCustomerDetails,
+  getAllCustomers,
   getAllLocations,
   getLocationsBoardData,
   getMasterCosts,
