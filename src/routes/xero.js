@@ -105,26 +105,20 @@ router.get("/callback", async (req, res) => {
         <body style="font-family:sans-serif;padding:40px;text-align:center;">
           <h2 style="color:#2e7d32;">&#10003; Xero Connected Successfully</h2>
           <p>Organisation: <strong>${activeTenant.tenantName}</strong></p>
-          <p id="msg">This window will close automatically...</p>
-          <button id="closeBtn" onclick="window.close()" style="display:none;margin-top:16px;padding:10px 24px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;">
+          <p style="color:#555;margin-bottom:20px;">You can now close this window and return to the app.</p>
+          <button onclick="window.close()" style="padding:10px 28px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
             Close this window
           </button>
           <script>
-            // Notify the opener so it can refresh Xero status immediately
-            if (window.opener && !window.opener.closed) {
-              window.opener.postMessage({ type: 'xero_connected' }, '*');
-            }
-            // Try to close synchronously — most browsers allow this for
-            // windows opened via window.open()
+            // window.opener is often nulled by Chrome after cross-origin OAuth
+            // navigation (Xero's login pages). Try postMessage anyway — the
+            // frontend polling will pick up the closed state as a fallback.
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'xero_connected' }, '*');
+              }
+            } catch(e) {}
             window.close();
-            // If we're still here after 300ms, the browser blocked the close.
-            // Show a manual close button instead.
-            setTimeout(function() {
-              var btn = document.getElementById('closeBtn');
-              var msg = document.getElementById('msg');
-              if (btn) btn.style.display = 'inline-block';
-              if (msg) msg.textContent = 'Your browser blocked auto-close. Please close this window manually.';
-            }, 300);
           </script>
         </body>
       </html>
