@@ -34,6 +34,9 @@ router.get("/me", async (req, res, next) => {
         isAdmin: req.technician.isAdmin,
       },
     });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
