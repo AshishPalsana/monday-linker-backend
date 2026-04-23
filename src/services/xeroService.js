@@ -327,79 +327,99 @@ async function createXeroContact({
 
   const syncTask = async () => {
     console.log(`[xeroService] Calling createContacts — tenantId=${tenantId} name="${name}"`);
-    try {
-      const response = await xero.accountingApi.createContacts(tenantId, {
-        contacts: [contact],
-      });
-      return response.body?.contacts?.[0]?.contactID;
-    } catch (err) {
-      console.error("[xeroService] createContacts threw — typeof:", typeof err, "| constructor:", err?.constructor?.name);
       try {
-        console.error("[xeroService] createContacts error dump:", JSON.stringify(err, Object.getOwnPropertyNames(err ?? {})));
-      } catch (_) {
-        console.error("[xeroService] createContacts error (not serialisable):", String(err));
-      }
-
-      // Normalize: xero-node v15 may throw the full response as a JSON string
-      let normalized = err;
-      if (typeof err === "string") {
-        try { normalized = JSON.parse(err); } catch (_) {}
-      }
-      const errResponse = normalized?.response;
-      let errBody = errResponse?.body || errResponse?.data || normalized?.body;
-      if (typeof errBody === "string") {
-        try { errBody = JSON.parse(errBody); } catch (_) {}
-      }
-      const status = errResponse?.statusCode || errResponse?.status
-        || normalized?.statusCode || normalized?.status
-        || err?.response?.statusCode || err?.statusCode || err?.response?.status || err?.status;
-
-      // Recovery: Contact deleted from Xero (404)
-      if (xeroContactId && status === 404) {
-        console.warn(`[xeroService] Contact ${xeroContactId} not found in Xero. Retrying as new creation.`);
-        delete contact.contactID;
-        const retryResponse = await xero.accountingApi.createContacts(tenantId, { contacts: [contact] });
-        return retryResponse.body?.contacts?.[0]?.contactID;
-      }
-
-      const errorDetail = parseXeroError(err);
-
-      // Recovery: Duplicate Account Number (400) — Xero includes the existing ContactID in Elements[0]
-      if (status === 400 && errorDetail.toLowerCase().includes("account number already exists")) {
-        const elements = Array.isArray(errBody?.Elements) ? errBody.Elements : [];
-        const existingContactId = elements[0]?.ContactID;
-        if (existingContactId) {
-          console.log(`[xeroService] ✓ Duplicate account number resolved → existing ContactID: ${existingContactId}`);
-          return existingContactId;
+        const response = await xero.accountingApi.createContacts(tenantId, {
+          contacts: [contact],
+        });
+        const created = response.body?.contacts?.[0];
+        return {
+          contactId: created?.contactID,
+          accountNumber: created?.accountNumber,
+        };
+      } catch (err) {
+        console.error("[xeroService] createContacts threw — typeof:", typeof err, "| constructor:", err?.constructor?.name);
+        try {
+          console.error("[xeroService] createContacts error dump:", JSON.stringify(err, Object.getOwnPropertyNames(err ?? {})));
+        } catch (_) {
+          console.error("[xeroService] createContacts error (not serialisable):", String(err));
         }
-        // Fallback: search by account number
-        if (accountNumber) {
-          console.log(`[xeroService] Searching for contact by account number "${accountNumber}"…`);
-          const searchResp = await xero.accountingApi.getContacts(tenantId, undefined, `AccountNumber=="${accountNumber}"`);
-          const found = searchResp.body?.contacts?.[0];
-          if (found?.contactID) {
-            console.log(`[xeroService] ✓ Found contact by account number: ${found.contactID}`);
-            return found.contactID;
+
+        // Normalize: xero-node v15 may throw the full response as a JSON string
+        let normalized = err;
+        if (typeof err === "string") {
+          try { normalized = JSON.parse(err); } catch (_) {}
+        }
+        const errResponse = normalized?.response;
+        let errBody = errResponse?.body || errResponse?.data || normalized?.body;
+        if (typeof errBody === "string") {
+          try { errBody = JSON.parse(errBody); } catch (_) {}
+        }
+        const status = errResponse?.statusCode || errResponse?.status
+          || normalized?.statusCode || normalized?.status
+          || err?.response?.statusCode || err?.statusCode || err?.response?.status || err?.status;
+
+        // Recovery: Contact deleted from Xero (404)
+        if (xeroContactId && status === 404) {
+          console.warn(`[xeroService] Contact ${xeroContactId} not found in Xero. Retrying as new creation.`);
+          delete contact.contactID;
+          const retryResponse = await xero.accountingApi.createContacts(tenantId, { contacts: [contact] });
+          const retried = retryResponse.body?.contacts?.[0];
+          return {
+            contactId: retried?.contactID,
+            accountNumber: retried?.accountNumber,
+          };
+        }
+
+        const errorDetail = parseXeroError(err);
+
+        // Recovery: Duplicate Account Number (400) — Xero includes the existing ContactID in Elements[0]
+        if (status === 400 && errorDetail.toLowerCase().includes("account number already exists")) {
+          const elements = Array.isArray(errBody?.Elements) ? errBody.Elements : [];
+          const existingContactId = elements[0]?.ContactID;
+          if (existingContactId) {
+            console.log(`[xeroService] ✓ Duplicate account number resolved → existing ContactID: ${existingContactId}`);
+            // Fetch the full contact to get the current account number
+            const fetchResp = await xero.accountingApi.getContact(tenantId, existingContactId);
+            const found = fetchResp.body?.contacts?.[0];
+            return {
+              contactId: found?.contactID,
+              accountNumber: found?.accountNumber,
+            };
+          }
+          // Fallback: search by account number
+          if (accountNumber) {
+            console.log(`[xeroService] Searching for contact by account number "${accountNumber}"…`);
+            const searchResp = await xero.accountingApi.getContacts(tenantId, undefined, `AccountNumber=="${accountNumber}"`);
+            const found = searchResp.body?.contacts?.[0];
+            if (found?.contactID) {
+              console.log(`[xeroService] ✓ Found contact by account number: ${found.contactID}`);
+              return {
+                contactId: found.contactID,
+                accountNumber: found.accountNumber,
+              };
+            }
           }
         }
-      }
 
-      // Recovery: Duplicate Contact Name (400)
-      if (status === 400 && errorDetail.toLowerCase().includes("already assigned to another contact")) {
-        console.log(`[xeroService] Duplicate name detected for "${name}". Searching for existing contact…`);
-        const safeName = name.replace(/'/g, "''");
-        const searchResponse = await xero.accountingApi.getContacts(tenantId, undefined, `Name=="${safeName}"`);
-        const existing = searchResponse.body?.contacts?.find(c => c.name?.toLowerCase() === name.toLowerCase());
-        if (existing) {
-          console.log(`[xeroService] ✓ Conflict resolved. Found existing contactId: ${existing.contactID}`);
-          return existing.contactID;
-        } else {
-          console.warn(`[xeroService] Conflict reported by Xero but search returned no match for "${name}"`);
+        // Recovery: Duplicate Contact Name (400)
+        if (status === 400 && errorDetail.toLowerCase().includes("already assigned to another contact")) {
+          console.log(`[xeroService] Duplicate name detected for "${name}". Searching for existing contact…`);
+          const safeName = name.replace(/'/g, "''");
+          const searchResponse = await xero.accountingApi.getContacts(tenantId, undefined, `Name=="${safeName}"`);
+          const existing = searchResponse.body?.contacts?.find(c => c.name?.toLowerCase() === name.toLowerCase());
+          if (existing) {
+            console.log(`[xeroService] ✓ Conflict resolved. Found existing contactId: ${existing.contactID}`);
+            return {
+              contactId: existing.contactID,
+              accountNumber: existing.accountNumber,
+            };
+          } else {
+            console.warn(`[xeroService] Conflict reported by Xero but search returned no match for "${name}"`);
+          }
         }
-      }
 
-      throw err;
-    }
+        throw err;
+      }
   };
 
   // 10s Timeout Guard

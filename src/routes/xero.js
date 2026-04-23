@@ -259,18 +259,28 @@ router.post("/retry-sync/:mondayItemId", async (req, res) => {
         const cust = await getCustomerDetails(wo.customerId);
         
         if (cust) {
-          xeroContactId = await createXeroContact({
+          const syncResult = await createXeroContact({
             name: cust.name,
             email: cust.email,
             phone: cust.phone,
             accountNumber: cust.accountNumber,
             address: cust.address
           });
+          xeroContactId = syncResult.contactId;
 
           await prisma.customer.upsert({
             where: { id: String(wo.customerId) },
-            update: { xeroContactId, xeroSyncStatus: "Synced" },
-            create: { id: String(wo.customerId), xeroContactId, xeroSyncStatus: "Synced" }
+            update: { 
+              xeroContactId, 
+              accountNumber: syncResult.accountNumber || undefined,
+              xeroSyncStatus: "Synced" 
+            },
+            create: { 
+              id: String(wo.customerId), 
+              xeroContactId, 
+              accountNumber: syncResult.accountNumber || null,
+              xeroSyncStatus: "Synced" 
+            }
           });
         }
       }

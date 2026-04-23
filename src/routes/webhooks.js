@@ -49,12 +49,11 @@ async function resolveXeroContact(customerId) {
   // 3. Create/find in Xero (createXeroContact handles duplicate-name conflicts)
   let xeroContactId;
   try {
-    xeroContactId = await xeroService.createXeroContact({
+    const syncResult = await xeroService.createXeroContact({
       name: cust.name,
       email: cust.email || undefined,
       phone: cust.phone || undefined,
       accountNumber: cust.accountNumber || undefined,
-      // Prefer structured address fields from DB; fall back to Monday's combined string
       addressLine1: existing?.addressLine1 || cust.address || undefined,
       addressLine2: existing?.addressLine2 || undefined,
       city: existing?.city || undefined,
@@ -62,6 +61,8 @@ async function resolveXeroContact(customerId) {
       zip: existing?.zip || undefined,
       country: existing?.country || "USA",
     });
+    xeroContactId = syncResult.contactId;
+    const finalAccountNumber = syncResult.accountNumber || cust.accountNumber;
   } catch (xeroErr) {
     console.error(`[webhook] Xero contact creation failed for customer ${custId}:`, xeroErr.message);
 
@@ -95,6 +96,7 @@ async function resolveXeroContact(customerId) {
     where: { id: custId },
     update: {
       xeroContactId,
+      accountNumber: finalAccountNumber || undefined,
       xeroSyncStatus: "Synced",
       syncErrorMessage: null,
       lastSyncAt: new Date(),
@@ -104,11 +106,17 @@ async function resolveXeroContact(customerId) {
       name: cust.name,
       email: cust.email || null,
       phone: cust.phone || null,
+      accountNumber: finalAccountNumber || null,
       xeroContactId,
       xeroSyncStatus: "Synced",
       lastSyncAt: new Date(),
     },
   }).catch((dbErr) => console.error("[webhook] DB persist of Xero success failed:", dbErr.message));
+
+  // 5. Update Monday Account Number if it changed (e.g. pulled from existing Xero contact)
+  if (finalAccountNumber && finalAccountNumber !== cust.accountNumber) {
+    await updateCustomerAccountNumber(custId, finalAccountNumber).catch(() => {});
+  }
 
   // 5. Write back to Monday board (non-blocking — board display is secondary)
   await updateCustomerXeroId(custId, xeroContactId).catch((e) =>
@@ -375,7 +383,7 @@ router.post("/monday/item-created", async (req, res, next) => {
           // Check if structured address is already in DB (from /api/customers/upsert)
           const dbRecord = await prisma.customer.findUnique({ where: { id: String(pulseId) } });
 
-          const xeroContactId = await xeroService.createXeroContact({
+          const syncResult = await xeroService.createXeroContact({
             name: cust.name,
             email: cust.email || undefined,
             phone: cust.phone || undefined,
@@ -388,11 +396,15 @@ router.post("/monday/item-created", async (req, res, next) => {
             country: dbRecord?.country || "USA",
           });
 
+          const xeroContactId = syncResult.contactId;
+          const finalAccountNumber = syncResult.accountNumber || newAccountNumber;
+
           // Persist to DB
           await prisma.customer.upsert({
             where: { id: String(pulseId) },
             update: {
               xeroContactId,
+              accountNumber: finalAccountNumber,
               xeroSyncStatus: "Synced",
               syncErrorMessage: null,
               lastSyncAt: new Date(),
@@ -402,12 +414,17 @@ router.post("/monday/item-created", async (req, res, next) => {
               name: cust.name,
               email: cust.email || null,
               phone: cust.phone || null,
-              accountNumber: newAccountNumber,
+              accountNumber: finalAccountNumber,
               xeroContactId,
               xeroSyncStatus: "Synced",
               lastSyncAt: new Date(),
             },
           });
+
+          // Write back to Monday if account number changed (e.g. pulled from Xero)
+          if (finalAccountNumber !== newAccountNumber) {
+            await updateCustomerAccountNumber(String(pulseId), finalAccountNumber).catch(() => {});
+          }
 
           // Write back to Monday board
           await updateCustomerXeroId(String(pulseId), xeroContactId).catch((e) =>
