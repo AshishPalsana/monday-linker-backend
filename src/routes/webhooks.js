@@ -465,7 +465,7 @@ router.post("/monday/item-created", async (req, res, next) => {
       }
 
       // ── Customer details changed — sync updates to Xero ──
-      if (event.type === "change_column_value" || event.type === "change_name") {
+      if (event.type === "change_column_value" || event.type === "update_column_value" || event.type === "change_name") {
         const SKIP_COLS = new Set([
           String(COL.CUSTOMERS.XERO_CONTACT_ID),
           String(COL.CUSTOMERS.XERO_SYNC_STATUS),

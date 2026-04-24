@@ -467,7 +467,7 @@ async function createXeroContact({
     const resultId = await Promise.race([syncTask(), timeoutPromise]);
     if (!resultId) throw new Error("Xero API returned no contactID.");
 
-    console.log(`[xeroService] ✓ Xero Contact synced — contactId=${resultId}`);
+    console.log(`[xeroService] ✓ Xero Contact synced — contactId=${resultId?.contactId}`);
     return resultId;
   } catch (err) {
     const detail = parseXeroError(err);
