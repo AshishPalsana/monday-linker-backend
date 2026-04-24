@@ -569,12 +569,18 @@ router.post("/monday/item-created", async (req, res, next) => {
             }
 
             const existingXeroSyncId = col(MC.XERO_SYNC_ID)?.text?.trim() || null;
-            const type               = col(MC.TYPE)?.text || "Labor";
+            const type               = col(MC.TYPE)?.text || null;
             const quantity           = parseFloat(col(MC.QUANTITY)?.text || 0);
             const rate               = parseFloat(col(MC.RATE)?.text || 0);
             const totalCost          = parseFloat(col(MC.TOTAL_COST)?.text || 0);
             const description        = col(MC.DESCRIPTION)?.text || null;
             const date               = col(MC.DATE)?.text || null;
+
+            // Skip if the item has no type or zero cost — it's not fully set up yet
+            if (!type || (totalCost === 0 && rate === 0)) {
+              console.log(`[webhook] Master Cost ${pulseId} has no type or zero cost — skipping Xero sync`);
+              return;
+            }
 
             const lockAcquired = xeroService.tryAcquireSyncLock(String(pulseId));
             if (!lockAcquired) {

@@ -82,12 +82,20 @@ async function aggregateWorkOrderCosts(workOrderId) {
         const dateCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.DATE);
         const descCol  = item.column_values.find(cv => cv.id === monday.COL.MASTER_COSTS.DESCRIPTION);
 
-        const type        = typeCol?.text;
+        const type        = typeCol?.text || null;
         const quantity    = parseFloat(qtyCol?.text || 0);
         const rate        = parseFloat(rateCol?.text || 0);
         const totalCost   = parseFloat(totalCol?.text || 0) || parseFloat((quantity * rate).toFixed(2));
         const date        = dateCol?.text || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
         const description = item.name || descCol?.text || "Project Cost";
+
+        // Skip items that have no type or zero cost — they were just created in Monday
+        // and columns haven't been filled in yet. The webhook will sync once data is set.
+        if (!type || (totalCost === 0 && rate === 0)) {
+          console.log(`[aggregation] Item ${item.id} has no type or zero cost — deferring Xero sync`);
+          releaseSyncLock(item.id);
+          continue;
+        }
 
         try {
           const newXeroSyncId = await xero.syncMasterCostItemToXero({
