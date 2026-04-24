@@ -77,8 +77,9 @@ router.post("/upsert",
       const billingAddressStr = combineAddress(addressFields);
 
       const existing = await prisma.customer.findUnique({ where: { id: pulseId } });
+      const isNew = !existing;
 
-      const hasChanged = !existing ||
+      const hasChanged = isNew ||
         existing.name !== name ||
         existing.email !== email ||
         existing.phone !== phone ||
@@ -87,9 +88,14 @@ router.post("/upsert",
         existing.country !== addressFields.country ||
         existing.billingTerms !== billingTerms;
 
-      const shouldSync = hasChanged || existing?.xeroSyncStatus === "Failed";
+      // For NEW customers the create_pulse webhook handles the Xero sync
+      // (it assigns the account number first, then creates the Xero contact).
+      // Running syncCustomerToXero here concurrently would race the webhook and
+      // could link the Monday item to the wrong Xero contact (no account number
+      // set yet, so the lookup finds a different existing contact).
+      const shouldSync = !isNew && (hasChanged || existing?.xeroSyncStatus === "Failed");
 
-      console.log(`[api/customers] Upsert pulse ${pulseId} — hasChanged=${hasChanged} shouldSync=${shouldSync}`);
+      console.log(`[api/customers] Upsert pulse ${pulseId} — isNew=${isNew} hasChanged=${hasChanged} shouldSync=${shouldSync}`);
 
       const customer = await prisma.customer.upsert({
         where: { id: pulseId },
