@@ -262,10 +262,21 @@ router.post("/monday/item-created", async (req, res, next) => {
         return; // already sent res above
       }
 
-      // Column change events
-      if (event.type === "change_column_value") {
+      // Column change events — handles both change_column_value (specific automations)
+      // and update_column_value (fired by "When any column changes" automation)
+      if (event.type === "change_column_value" || event.type === "update_column_value") {
+        const WO_SKIP_COLS = new Set([
+          String(COL.WORK_ORDERS.WORKORDER_ID),   // written by backend on create
+          String(COL.WORK_ORDERS.TOTAL_JOB_COST), // written by cost aggregation
+        ]);
+
+        if (WO_SKIP_COLS.has(event.columnId)) {
+          return res.status(200).send("Ignored");
+        }
+
         const techColId = String(COL.WORK_ORDERS.TECHNICIAN);
         const custColId = String(COL.WORK_ORDERS.CUSTOMER);
+        const locColId  = String(COL.WORK_ORDERS.LOCATION);
 
         // ── Technician assignment ───────────────────────────────────────────
         if (event.columnId === techColId) {
@@ -351,6 +362,43 @@ router.post("/monday/item-created", async (req, res, next) => {
                   syncError: err.message,
                 },
               }).catch((dbErr) => console.error("[webhook] Failed to persist WO sync error:", dbErr.message));
+            }
+          });
+
+          return; // res already sent
+        }
+
+        // ── Location linked/changed — create CompanyCam report if not yet done ──
+        if (event.columnId === locColId) {
+          console.log(`[webhook] Location column changed on WO pulse ${pulseId} — checking CompanyCam report`);
+
+          res.status(200).send("OK");
+
+          setImmediate(async () => {
+            try {
+              const wo = await getWorkOrderDetails(pulseId);
+              if (!wo?.locationId) {
+                console.log(`[webhook] WO ${pulseId} location cleared — nothing to do`);
+                return;
+              }
+
+              const mapping = await prisma.locationSync.findUnique({
+                where: { mondayItemId: String(wo.locationId) },
+              });
+              if (!mapping?.companyCamProjectId) {
+                console.warn(`[webhook] No CompanyCam project for location ${wo.locationId} — skipping report creation`);
+                return;
+              }
+
+              const woSync = await prisma.workOrderSync.findUnique({
+                where: { mondayItemId: String(pulseId) },
+              });
+              const workOrderId = woSync?.workOrderId || wo.workOrderId || String(pulseId);
+
+              await companyCam.createProjectReport(mapping.companyCamProjectId, { title: workOrderId });
+              console.log(`[webhook] ✓ CompanyCam report created for WO ${pulseId} (triggered by location link)`);
+            } catch (err) {
+              console.error(`[webhook] ✗ CompanyCam report creation (on location link) failed for WO ${pulseId}:`, err.message);
             }
           });
 
