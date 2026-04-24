@@ -216,7 +216,7 @@ router.patch(
       // Xero sync — only when fields that affect cost/type/description changed.
       // Lock covers sync + Monday write-back to prevent aggregation creating a duplicate
       // in the window between Xero entry creation and xeroSyncId being persisted.
-      const xeroRelevantChanged = [type, quantity, rate, description, date].some(
+      const xeroRelevantChanged = [name, type, quantity, rate, description, date].some(
         (v) => v !== undefined,
       );
       let newXeroSyncId = existingXeroSyncId;
