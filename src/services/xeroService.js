@@ -693,6 +693,7 @@ async function updateProjectTask(xeroProjectId, taskId, { description, amount })
     await xero.projectApi.updateTask(tenantId, xeroProjectId, taskId, {
       name: description,
       rate: { value: amount, currency: "USD" },
+      chargeType: "FIXED",
     });
     console.log(`[xeroService] ✓ Task updated — taskId=${taskId}`);
   } catch (err) {
@@ -741,7 +742,15 @@ async function syncMasterCostItemToXero({
         return existingTaskId;
       }
     } catch (err) {
-      console.warn(`[xeroService] Update failed, falling back to creation:`, err.message);
+      // Only fall back to creation if Xero says the task no longer exists (deleted manually in Xero).
+      // For any other failure, rethrow — silently creating a new entry would leave the old task
+      // as a stale duplicate and orphan the stored xeroSyncId.
+      const msg = String(err?.message || "").toLowerCase();
+      const isNotFound = msg.includes("404") || msg.includes("not found") || msg.includes("does not exist");
+      if (!isNotFound) {
+        throw err;
+      }
+      console.warn(`[xeroService] Task ${existingTaskId} not found in Xero (404) — will recreate`);
     }
   }
 
