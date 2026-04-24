@@ -58,6 +58,7 @@ const COL = {
     BILLING_TERMS: "dropdown_mm0r9ywe",
     XERO_CONTACT_ID: "text_mm0rdxmk",
     XERO_SYNC_STATUS: "color_mm0rxh2b",
+    CUSTOMER_STATUS: "color_mm0rjkns",
   },
   LOCATIONS: {
     STREET: "text_mm0r64n",

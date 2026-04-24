@@ -470,6 +470,7 @@ router.post("/monday/item-created", async (req, res, next) => {
           String(COL.CUSTOMERS.XERO_CONTACT_ID),
           String(COL.CUSTOMERS.XERO_SYNC_STATUS),
           String(COL.CUSTOMERS.ACCOUNT_NUMBER),
+          String(COL.CUSTOMERS.CUSTOMER_STATUS), // Monday-only field, no Xero equivalent
         ]);
 
         // Manual retry trigger: changing XERO_SYNC_STATUS re-runs the full sync

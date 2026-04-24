@@ -362,6 +362,37 @@ async function createXeroContact({
       }
     }
 
+    // When updating an existing contact, use POST /Contacts/{contactID} (updateContact)
+    // rather than PUT /Contacts (createContacts). The PUT endpoint validates name
+    // uniqueness globally — including against the very contact being updated — which
+    // causes a false "name already assigned to another contact" error even on valid
+    // updates. The POST endpoint targets the contact directly by ID and avoids this.
+    if (xeroContactId) {
+      try {
+        console.log(`[xeroService] Updating existing contact ${xeroContactId} via updateContact`);
+        const response = await xero.accountingApi.updateContact(tenantId, xeroContactId, {
+          contacts: [contact],
+        });
+        const updated = response.body?.contacts?.[0];
+        return {
+          contactId: updated?.contactID || xeroContactId,
+          accountNumber: updated?.accountNumber,
+        };
+      } catch (updateErr) {
+        let ue = updateErr;
+        if (typeof ue === "string") { try { ue = JSON.parse(ue); } catch (_) {} }
+        const ueStatus = ue?.response?.statusCode || ue?.response?.status
+          || ue?.statusCode || ue?.status;
+        if (ueStatus === 404) {
+          console.warn(`[xeroService] Contact ${xeroContactId} not found in Xero (404) — will re-create`);
+          delete contact.contactID;
+          // Fall through to createContacts to re-create it fresh
+        } else {
+          throw updateErr;
+        }
+      }
+    }
+
     console.log(`[xeroService] Calling createContacts — tenantId=${tenantId} name="${name}"`);
       try {
         const response = await xero.accountingApi.createContacts(tenantId, {
