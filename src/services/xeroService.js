@@ -687,7 +687,7 @@ async function updateProjectTimeEntry(xeroProjectId, timeEntryId, { description,
  * Updates a Task (fixed expense) in a Xero Project.
  */
 async function updateProjectTask(xeroProjectId, taskId, { description, amount }) {
-  console.log(`[xeroService] updateProjectTask — projectId=${xeroProjectId} taskId=${taskId}`);
+  console.log(`[xeroService] updateProjectTask — projectId=${xeroProjectId} taskId=${taskId} name="${description}" amount=${amount}`);
   const { xero, tenantId } = await getAuthenticatedClient();
   try {
     await xero.projectApi.updateTask(tenantId, xeroProjectId, taskId, {

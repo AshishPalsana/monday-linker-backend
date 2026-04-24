@@ -589,22 +589,30 @@ router.post("/monday/item-created", async (req, res, next) => {
             }
 
             try {
-              // Re-fetch xeroSyncId after acquiring the lock — a concurrent aggregation or webhook
-              // may have written it between our snapshot and now. Use it for UPDATE, not CREATE.
-              if (!existingXeroSyncId) {
-                const liveItem = await getMasterCostItem(String(pulseId)).catch(() => null);
-                const liveXeroId = liveItem?.column_values?.find(c => c.id === MC.XERO_SYNC_ID)?.text?.trim() || null;
-                if (liveXeroId) {
-                  console.log(`[webhook] Item ${pulseId} synced concurrently — switching to update path (xeroSyncId=${liveXeroId})`);
-                  existingXeroSyncId = liveXeroId;
+              // Re-fetch the live item after acquiring the lock to capture two race conditions:
+              //  1. Concurrent sync wrote xeroSyncId between snapshot and now (use UPDATE path)
+              //  2. Item was renamed while this webhook waited for the lock (use new name)
+              let liveName = item.name;
+              const liveItem = await getMasterCostItem(String(pulseId)).catch(() => null);
+              if (liveItem) {
+                if (!existingXeroSyncId) {
+                  const liveXeroId = liveItem.column_values?.find(c => c.id === MC.XERO_SYNC_ID)?.text?.trim() || null;
+                  if (liveXeroId) {
+                    console.log(`[webhook] Item ${pulseId} synced concurrently — switching to update path (xeroSyncId=${liveXeroId})`);
+                    existingXeroSyncId = liveXeroId;
+                  }
                 }
+                if (liveItem.name && liveItem.name !== item.name) {
+                  console.log(`[webhook] Item ${pulseId} name updated since snapshot: "${item.name}" → "${liveItem.name}"`);
+                }
+                liveName = liveItem.name || item.name;
               }
 
               const newXeroSyncId = await xeroService.syncMasterCostItemToXero({
                 xeroProjectId: woSync.xeroProjectId,
                 existingXeroSyncId,
                 type,
-                description: item.name || description,
+                description: liveName || description,
                 quantity,
                 rate,
                 totalCost,
