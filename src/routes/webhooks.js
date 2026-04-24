@@ -568,7 +568,7 @@ router.post("/monday/item-created", async (req, res, next) => {
               return;
             }
 
-            const existingXeroSyncId = col(MC.XERO_SYNC_ID)?.text?.trim() || null;
+            let existingXeroSyncId   = col(MC.XERO_SYNC_ID)?.text?.trim() || null;
             const type               = col(MC.TYPE)?.text || null;
             const quantity           = parseFloat(col(MC.QUANTITY)?.text || 0);
             const rate               = parseFloat(col(MC.RATE)?.text || 0);
@@ -589,6 +589,17 @@ router.post("/monday/item-created", async (req, res, next) => {
             }
 
             try {
+              // Re-fetch xeroSyncId after acquiring the lock — a concurrent aggregation or webhook
+              // may have written it between our snapshot and now. Use it for UPDATE, not CREATE.
+              if (!existingXeroSyncId) {
+                const liveItem = await getMasterCostItem(String(pulseId)).catch(() => null);
+                const liveXeroId = liveItem?.column_values?.find(c => c.id === MC.XERO_SYNC_ID)?.text?.trim() || null;
+                if (liveXeroId) {
+                  console.log(`[webhook] Item ${pulseId} synced concurrently — switching to update path (xeroSyncId=${liveXeroId})`);
+                  existingXeroSyncId = liveXeroId;
+                }
+              }
+
               const newXeroSyncId = await xeroService.syncMasterCostItemToXero({
                 xeroProjectId: woSync.xeroProjectId,
                 existingXeroSyncId,
