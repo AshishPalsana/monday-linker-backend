@@ -488,7 +488,9 @@ router.post("/monday/item-created", async (req, res, next) => {
         }
 
         // Skip other system-written columns to avoid infinite loops
-        if (event.type === "change_column_value" && SKIP_COLS.has(event.columnId)) {
+        // Covers both change_column_value AND update_column_value so backend write-backs
+        // (Account Number, Xero Contact ID, Xero Sync Status) don't re-trigger a sync.
+        if (SKIP_COLS.has(event.columnId)) {
           return res.status(200).send("Ignored");
         }
 
