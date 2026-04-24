@@ -11,6 +11,8 @@ const {
   COL,
   getWorkOrderDetails,
   getCustomerDetails,
+  getMasterCostItem,
+  updateMasterCostItem,
   graphql,
 } = require("../lib/mondayClient");
 const companyCam = require("../services/companyCamService");
@@ -151,7 +153,7 @@ router.post("/monday/item-created", async (req, res, next) => {
 
     console.log(`[webhook] Event received — type=${event.type} boardId=${event.boardId} pulseId=${event.pulseId}`);
 
-    const ALLOWED_TYPES = ["create_pulse", "change_column_value", "update_column_value"];
+    const ALLOWED_TYPES = ["create_pulse", "change_column_value", "update_column_value", "change_name"];
     if (!ALLOWED_TYPES.includes(event.type)) {
       console.log(`[webhook] Ignoring event type "${event.type}"`);
       return res.status(200).send("Ignored");
@@ -499,11 +501,8 @@ router.post("/monday/item-created", async (req, res, next) => {
 
     // ── Master Costs board ──────────────────────────────────────────────────
     if (String(boardId) === String(BOARD.MASTER_COSTS)) {
-      // Only process item creation and changes to cost-relevant columns.
-      // XERO_SYNC_ID and INVOICE_STATUS are excluded — they're written by our own backend
-      // and must not trigger another sync (would cause infinite loops or duplicates).
-      // NOTE: Xero re-sync on edits is handled directly by the PATCH route, not here.
-      // The webhook only handles: (1) total cost aggregation, (2) initial Xero sync for new items.
+      // XERO_SYNC_ID and INVOICE_STATUS are excluded — written by our own backend;
+      // processing them would cause infinite loops.
       const COST_RELEVANT_COLS = new Set([
         COL.MASTER_COSTS.TYPE,
         COL.MASTER_COSTS.QUANTITY,
@@ -514,57 +513,101 @@ router.post("/monday/item-created", async (req, res, next) => {
         COL.MASTER_COSTS.WORK_ORDERS_REL,
       ]);
 
-      const isCreate = event.type === "create_pulse";
-      const isCostRelevantChange = !isCreate && COST_RELEVANT_COLS.has(event.columnId);
+      const isCreate     = event.type === "create_pulse";
+      const isNameChange = event.type === "change_name";
+      const isCostRelevantChange = !isCreate && !isNameChange && COST_RELEVANT_COLS.has(event.columnId);
 
-      // Skip column changes that are not cost-relevant (avoids processing every single update)
-      if (!isCreate && !isCostRelevantChange) {
+      if (!isCreate && !isNameChange && !isCostRelevantChange) {
         console.log(`[webhook] Master Cost column "${event.columnId}" is not cost-relevant — skipping.`);
         return res.status(200).send("Ignored");
       }
 
-      console.log(`[webhook] Processing Master Cost ${isCreate ? "CREATE" : `UPDATE (col=${event.columnId})`}…`);
+      console.log(`[webhook] Processing Master Cost ${isCreate ? "CREATE" : isNameChange ? "NAME CHANGE" : `UPDATE (col=${event.columnId})`}…`);
 
       res.status(200).send("OK");
 
       setImmediate(async () => {
         try {
-          // Fetch the item's WO relation using linked_item_ids (value field is null for board_relation)
-          const result = await graphql(`
-            query {
-              items(ids: [${pulseId}]) {
-                column_values(ids: ["${COL.MASTER_COSTS.WORK_ORDERS_REL}"]) {
-                  ... on BoardRelationValue { linked_item_ids }
-                  value
-                }
-              }
-            }
-          `);
+          // Fetch the full item — needed for both aggregation and Xero sync
+          const item = await getMasterCostItem(String(pulseId));
+          if (!item) {
+            console.warn(`[webhook] Master Cost ${pulseId} not found — skipping`);
+            return;
+          }
 
-          const relCol = result.items?.[0]?.column_values?.[0];
+          const MC  = COL.MASTER_COSTS;
+          const col = (id) => item.column_values.find((c) => c.id === id);
+
+          // Resolve linked Work Order ID
+          const relCol    = col(MC.WORK_ORDERS_REL);
           let workOrderId = null;
-
           if (Array.isArray(relCol?.linked_item_ids) && relCol.linked_item_ids.length > 0) {
             workOrderId = relCol.linked_item_ids[0];
           } else if (relCol?.value) {
             try {
-              const parsed = JSON.parse(relCol.value);
+              const parsed   = JSON.parse(relCol.value);
               const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
-              workOrderId = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
+              workOrderId    = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
             } catch (_) {}
           }
 
+          // 1. Aggregate total cost on the Work Order
           if (workOrderId) {
-            // The webhook only handles: (1) total cost aggregation, (2) initial Xero sync
-            // for items with no XERO_SYNC_ID yet. All Xero updates go through the PATCH
-            // route exclusively — this prevents duplicates on multi-instance deployments
-            // where in-memory state cannot be shared across processes.
             await aggregateWorkOrderCosts(String(workOrderId));
           } else {
             console.log(`[webhook] Master Cost ${pulseId} has no linked Work Order yet — skipping aggregation.`);
           }
+
+          // 2. Xero sync — only for edits made directly in Monday (creates are handled by the POST route)
+          if (!isCreate && workOrderId) {
+            const woSync = await prisma.workOrderSync.findUnique({
+              where: { mondayItemId: String(workOrderId) },
+            });
+            if (!woSync?.xeroProjectId) {
+              console.log(`[webhook] WO ${workOrderId} has no Xero Project — skipping Xero sync`);
+              return;
+            }
+
+            const existingXeroSyncId = col(MC.XERO_SYNC_ID)?.text?.trim() || null;
+            const type               = col(MC.TYPE)?.text || "Labor";
+            const quantity           = parseFloat(col(MC.QUANTITY)?.text || 0);
+            const rate               = parseFloat(col(MC.RATE)?.text || 0);
+            const totalCost          = parseFloat(col(MC.TOTAL_COST)?.text || 0);
+            const description        = col(MC.DESCRIPTION)?.text || null;
+            const date               = col(MC.DATE)?.text || null;
+
+            const lockAcquired = xeroService.tryAcquireSyncLock(String(pulseId));
+            if (!lockAcquired) {
+              console.log(`[webhook] Sync lock held for item ${pulseId} — skipping duplicate Xero sync`);
+              return;
+            }
+
+            try {
+              const newXeroSyncId = await xeroService.syncMasterCostItemToXero({
+                xeroProjectId: woSync.xeroProjectId,
+                existingXeroSyncId,
+                type,
+                description: item.name || description,
+                quantity,
+                rate,
+                totalCost,
+                date,
+              });
+
+              if (newXeroSyncId !== null && newXeroSyncId !== existingXeroSyncId) {
+                await updateMasterCostItem(String(pulseId), { xeroSyncId: newXeroSyncId }).catch((err) => {
+                  console.warn(`[webhook] Could not write xeroSyncId back to Monday item ${pulseId}:`, err.message);
+                });
+              }
+              console.log(`[webhook] ✓ Xero sync for Master Cost ${pulseId} — xeroSyncId=${newXeroSyncId}`);
+            } catch (xeroErr) {
+              console.warn(`[webhook] Xero sync failed for Master Cost ${pulseId} (non-fatal):`, xeroErr.message);
+            } finally {
+              xeroService.releaseSyncLock(String(pulseId));
+            }
+          }
         } catch (err) {
-          console.error("[webhook] Master Cost aggregation error:", err.message);
+          console.error("[webhook] Master Cost processing error:", err.message);
         }
       });
       return;
