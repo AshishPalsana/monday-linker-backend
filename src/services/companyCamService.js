@@ -69,6 +69,32 @@ async function createProjectReport(projectId, { title }) {
 }
 
 /**
+ * Updates a Project's name and address in CompanyCam
+ */
+async function updateProject(projectId, { name, address, city, state, zip }) {
+  const client = getClient();
+  if (!client) return null;
+
+  try {
+    const response = await client.put(`/projects/${projectId}`, {
+      name,
+      address: {
+        street_address_1: address || undefined,
+        city: city || undefined,
+        state: state || undefined,
+        postal_code: zip || undefined,
+      },
+    });
+    console.log(`[companyCamService] ✓ Updated project ${projectId}`);
+    return response.data;
+  } catch (err) {
+    const errorBody = err.response?.data;
+    console.error("[companyCamService] Error updating project:", errorBody || err.message);
+    throw new Error(errorBody?.errors?.[0]?.message || err.message);
+  }
+}
+
+/**
  * Archives a project in CompanyCam
  */
 async function archiveProject(projectId) {
@@ -146,9 +172,20 @@ async function syncLocation(pulseId, initialData = null) {
     });
 
     if (mapping && mapping.companyCamProjectId) {
-      console.log(`[companyCamService] Item ${pulseId} already has CompanyCam Project ${mapping.companyCamProjectId}.`);
-      
-      // Handle status update for existing project
+      console.log(`[companyCamService] Item ${pulseId} already has CompanyCam Project ${mapping.companyCamProjectId} — updating details.`);
+
+      // Push updated name and address to CompanyCam
+      await updateProject(mapping.companyCamProjectId, {
+        name: loc.name,
+        address: loc.streetAddress,
+        city: loc.city,
+        state: loc.state,
+        zip: loc.zip,
+      }).catch((err) =>
+        console.warn(`[companyCamService] Could not update CC project details for ${mapping.companyCamProjectId}:`, err.message)
+      );
+
+      // Handle archive/restore based on status
       if (loc.locationStatus === "Inactive") {
         await archiveProject(mapping.companyCamProjectId);
       } else if (loc.locationStatus === "Active") {

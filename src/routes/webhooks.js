@@ -483,12 +483,15 @@ router.post("/monday/item-created", async (req, res, next) => {
     // ── Locations board ─────────────────────────────────────────────────────
     // ── Locations board ─────────────────────────────────────────────────────
     if (String(boardId) === String(BOARD.LOCATIONS)) {
-      const locStatusCol = String(COL.LOCATIONS.STATUS);
-      if (event.type === "change_column_value" && event.columnId !== locStatusCol) {
+      const isCreate = event.type === "create_pulse";
+      const isNameChange = event.type === "change_name";
+      const isColumnChange = event.type === "change_column_value" || event.type === "update_column_value";
+
+      if (!isCreate && !isNameChange && !isColumnChange) {
         return res.status(200).send("Ignored");
       }
 
-      console.log(`[webhook] Processing ${event.type === "create_pulse" ? "NEW" : "UPDATED"} LOCATION…`);
+      console.log(`[webhook] Processing ${isCreate ? "NEW" : "UPDATED"} LOCATION (${event.type}${isColumnChange ? ` col=${event.columnId}` : ""})…`);
       setImmediate(async () => {
         try {
           await companyCam.syncLocation(pulseId);
