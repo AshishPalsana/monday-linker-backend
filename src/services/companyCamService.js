@@ -53,12 +53,13 @@ async function createProjectReport(projectId, { title }) {
   try {
     console.log(`[companyCamService] Creating report "${title}" for project ${projectId}...`);
     
-    // Using the project-specific reports endpoint
-    const response = await client.post(`/projects/${projectId}/reports`, {
+    // Global reports endpoint requires project_id and title
+    const response = await client.post(`/reports`, {
+      project_id: projectId,
       title: title
     });
 
-    console.log(`[companyCamService] ✓ Report created successfully:`, response.data);
+    console.log(`[companyCamService] ✓ Report creation response:`, JSON.stringify(response.data, null, 2));
     return response.data;
   } catch (err) {
     const errorBody = err.response?.data;
