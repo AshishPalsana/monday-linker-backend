@@ -53,13 +53,12 @@ async function createProjectReport(projectId, { title }) {
   try {
     console.log(`[companyCamService] Creating report "${title}" for project ${projectId}...`);
     
-    // Per CC API: POST /reports requires project_id and title
-    const response = await client.post(`/reports`, {
-      project_id: projectId,
+    // Using the project-specific reports endpoint
+    const response = await client.post(`/projects/${projectId}/reports`, {
       title: title
     });
 
-    console.log(`[companyCamService] ✓ Report created: ${response.data.id}`);
+    console.log(`[companyCamService] ✓ Report created successfully:`, response.data);
     return response.data;
   } catch (err) {
     const errorBody = err.response?.data;
