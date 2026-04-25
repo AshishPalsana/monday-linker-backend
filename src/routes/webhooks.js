@@ -243,15 +243,25 @@ router.post("/monday/item-created", async (req, res, next) => {
           // ── CompanyCam report ─────────────────────────────────────────────
           try {
             if (wo?.locationId) {
-              const mapping = await prisma.locationSync.findUnique({
+              // 1. Ensure the location has a CompanyCam project mapping
+              let mapping = await prisma.locationSync.findUnique({
                 where: { mondayItemId: String(wo.locationId) },
               });
 
+              if (!mapping?.companyCamProjectId) {
+                console.log(`[webhook] Location ${wo.locationId} not yet synced to CompanyCam — syncing now...`);
+                const newCcProjectId = await companyCam.syncLocation(wo.locationId);
+                if (newCcProjectId) {
+                  mapping = { companyCamProjectId: newCcProjectId };
+                }
+              }
+
+              // 2. Create the report if we have a project ID
               if (mapping?.companyCamProjectId) {
                 await companyCam.createProjectReport(mapping.companyCamProjectId, { title: newWorkOrderId });
                 console.log(`[webhook] ✓ CompanyCam report created for ${newWorkOrderId}`);
               } else {
-                console.warn(`[webhook] No CompanyCam project mapping for location ${wo.locationId}`);
+                console.warn(`[webhook] Could not resolve CompanyCam project for location ${wo.locationId} — skipping report`);
               }
             }
           } catch (err) {
@@ -382,21 +392,31 @@ router.post("/monday/item-created", async (req, res, next) => {
                 return;
               }
 
-              const mapping = await prisma.locationSync.findUnique({
+              // 1. Ensure the location has a CompanyCam project mapping
+              let mapping = await prisma.locationSync.findUnique({
                 where: { mondayItemId: String(wo.locationId) },
               });
+
               if (!mapping?.companyCamProjectId) {
-                console.warn(`[webhook] No CompanyCam project for location ${wo.locationId} — skipping report creation`);
-                return;
+                console.log(`[webhook] Location ${wo.locationId} not yet synced to CompanyCam — syncing now (on link)...`);
+                const newCcProjectId = await companyCam.syncLocation(wo.locationId);
+                if (newCcProjectId) {
+                  mapping = { companyCamProjectId: newCcProjectId };
+                }
               }
 
-              const woSync = await prisma.workOrderSync.findUnique({
-                where: { mondayItemId: String(pulseId) },
-              });
-              const workOrderId = woSync?.workOrderId || wo.workOrderId || String(pulseId);
+              // 2. Create the report if we have a project ID
+              if (mapping?.companyCamProjectId) {
+                const woSync = await prisma.workOrderSync.findUnique({
+                  where: { mondayItemId: String(pulseId) },
+                });
+                const workOrderId = woSync?.workOrderId || wo.workOrderId || String(pulseId);
 
-              await companyCam.createProjectReport(mapping.companyCamProjectId, { title: workOrderId });
-              console.log(`[webhook] ✓ CompanyCam report created for WO ${pulseId} (triggered by location link)`);
+                await companyCam.createProjectReport(mapping.companyCamProjectId, { title: workOrderId });
+                console.log(`[webhook] ✓ CompanyCam report created for WO ${pulseId} (triggered by location link)`);
+              } else {
+                console.warn(`[webhook] Could not resolve CompanyCam project for location ${wo.locationId} — skipping report creation`);
+              }
             } catch (err) {
               console.error(`[webhook] ✗ CompanyCam report creation (on location link) failed for WO ${pulseId}:`, err.message);
             }
