@@ -307,6 +307,10 @@ async function updateTimeEntryItem(mondayItemId, { clockOut, hoursWorked, hasExp
     cv[COL.TIME_ENTRIES.EXPENSES_ADDED] = { checked: true };
   }
 
+  if (narrative) {
+    cv["name"] = narrative;
+  }
+
   // 1. Update scalar columns on the Time Entry
   await graphql(`
     mutation {
