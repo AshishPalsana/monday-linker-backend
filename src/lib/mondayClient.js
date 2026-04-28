@@ -73,7 +73,7 @@ const COL = {
     CLOCK_IN: "date_mm21zkpj",
     CLOCK_OUT: "date_mm2155gg",
     TASK_TYPE: "dropdown_mm21wscp",
-    WORK_ORDERS_REL: "board_relation_mm21aenv",
+    WORK_ORDERS_REL: "board_relation_mm2cy69m",
     TECHNICIANS: "multiple_person_mm21m56s",
     LOCATIONS_REL: "board_relation_mm21vtd1",
     EXPENSES_ADDED: "boolean_mm212dcy",
