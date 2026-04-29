@@ -108,11 +108,10 @@ router.get("/callback", async (req, res) => {
             <h2 style="color:#1b5e20;margin:0 0 8px;">Xero Connected!</h2>
             <p style="color:#555;margin:0 0 16px;">Organisation: <strong>${activeTenant.tenantName}</strong></p>
             <p style="color:#888;font-size:14px;margin-bottom:20px;">This window will close automatically. If it doesn't, click below.</p>
-            <button
-              onclick="window.location.replace('about:blank'); setTimeout(function(){ window.close(); }, 100);"
-              style="padding:10px 28px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
-              Close Now
-            </button>
+            <p style="color:#aaa;font-size:13px;margin-top:20px;">
+              Press <kbd style="background:#f0f0f0;border:1px solid #ccc;border-radius:4px;padding:2px 6px;font-family:monospace;">Ctrl+W</kbd> or click the <strong>✕</strong> button at the top of this window to close it.
+            </p>
+            <p style="color:#ccc;font-size:11px;margin-top:8px;">(Auto-close is blocked by browser security after Xero login)</p>
           </div>
           <script>
             // Notify opener (may be null in Chrome 88+ after cross-origin navigation — that's OK,
