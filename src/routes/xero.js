@@ -109,7 +109,7 @@ router.get("/callback", async (req, res) => {
             <p style="color:#555;margin:0 0 16px;">Organisation: <strong>${activeTenant.tenantName}</strong></p>
             <p style="color:#888;font-size:14px;margin-bottom:20px;">This window will close automatically. If it doesn't, click below.</p>
             <button
-              onclick="window.open('', '_self', ''); window.close();"
+              onclick="window.location.replace('about:blank'); setTimeout(function(){ window.close(); }, 100);"
               style="padding:10px 28px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
               Close Now
             </button>
