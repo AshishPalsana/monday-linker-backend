@@ -97,8 +97,8 @@ router.get("/callback", async (req, res) => {
     });
 
     console.log(`[xero] ✓ Connected — tenant: ${activeTenant.tenantName}`);
-    // The connect flow opens in a popup. Post a message to the opener so the
-    // parent app can refresh its Xero status, then close this window.
+    // The connect flow opens in a popup. The frontend polls /api/xero/status
+    // and closes the popup when it detects a successful connection.
     res.send(`
       <html>
         <head><title>Xero Connected</title></head>
@@ -106,31 +106,21 @@ router.get("/callback", async (req, res) => {
           <div style="max-width:400px;margin:60px auto;background:#fff;border-radius:12px;padding:40px;box-shadow:0 2px 16px rgba(0,0,0,0.08);">
             <div style="font-size:48px;margin-bottom:16px;">✅</div>
             <h2 style="color:#1b5e20;margin:0 0 8px;">Xero Connected!</h2>
-            <p style="color:#555;margin:0 0 8px;">Organisation: <strong>${activeTenant.tenantName}</strong></p>
-            <p style="color:#888;font-size:14px;">Closing in <span id="cd">2</span>s…</p>
-            <button onclick="window.close()" style="margin-top:16px;padding:10px 28px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            <p style="color:#555;margin:0 0 16px;">Organisation: <strong>${activeTenant.tenantName}</strong></p>
+            <p style="color:#888;font-size:14px;margin-bottom:20px;">This window will close automatically. If it doesn't, click below.</p>
+            <button onclick="window.close()" style="padding:10px 28px;background:#13b5ea;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
               Close Now
             </button>
           </div>
           <script>
-            // Try postMessage to the opener (may be null in Chrome 88+ after cross-origin nav)
+            // Notify opener (may be null in Chrome 88+ after cross-origin navigation — that's OK,
+            // the frontend polls /api/xero/status directly and will close this popup itself).
             try {
               if (window.opener && !window.opener.closed) {
                 window.opener.postMessage({ type: 'xero_connected' }, '*');
               }
             } catch(e) {}
-
-            // Countdown + auto-close. Using setTimeout chain instead of setInterval
-            // gives Chrome more reliability for closing a cross-origin-navigated popup.
-            var n = 2;
-            var el = document.getElementById('cd');
-            function tick() {
-              n--;
-              if (el) el.textContent = n;
-              if (n <= 0) { window.close(); } else { setTimeout(tick, 1000); }
-            }
-            setTimeout(tick, 1000);
-          </script>
+          <\/script>
         </body>
       </html>
     `);
