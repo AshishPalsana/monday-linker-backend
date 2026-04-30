@@ -8,6 +8,9 @@ const { emitTimeEvent } = require("../lib/socketServer");
 const { getCSTDayBounds, getCSTRangeBounds } = require("../lib/cstTime");
 const { syncTimeEntryToCost, removeCost } = require("../services/monday/syncService");
 const { requireBillingLock } = require("../middleware/billingLock");
+const multer = require("multer");
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const router = express.Router();
 
@@ -289,10 +292,32 @@ router.patch(
     body("expenses.*.details").optional().isString(),
     body("markComplete").optional({ values: "null" }).isBoolean(),
   ],
-  validate,
+  (req, res, next) => {
+    // If content-type is multipart/form-data, skip JSON validation for body fields
+    // as they will be parsed by multer. We'll validate them manually if needed.
+    if (req.headers["content-type"]?.includes("multipart/form-data")) {
+      return next();
+    }
+    validate(req, res, next);
+  },
+  upload.any(),
   requireBillingLock,
   async (req, res, next) => {
     try {
+      // Handle FormData parsing if necessary
+      if (req.headers["content-type"]?.includes("multipart/form-data")) {
+        if (typeof req.body.expenses === "string") {
+          try {
+            req.body.expenses = JSON.parse(req.body.expenses);
+          } catch (e) {
+            req.body.expenses = [];
+          }
+        }
+        if (req.body.markComplete === "true" || req.body.markComplete === "false") {
+          req.body.markComplete = req.body.markComplete === "true";
+        }
+      }
+
       const entry = await prisma.timeEntry.findUnique({ where: { id: req.params.id } });
 
       if (!entry) return res.status(404).json({ error: "Entry not found" });
@@ -478,7 +503,8 @@ router.patch(
             include: { expenses: true }
           });
 
-          for (const exp of fullEntry.expenses) {
+          for (let i = 0; i < fullEntry.expenses.length; i++) {
+            const exp = fullEntry.expenses[i];
             try {
               const expenseMondayId = await monday.createExpenseItem({
                 mondayUserId: req.technician.id,
@@ -489,6 +515,14 @@ router.patch(
                 timeEntryMondayId: entry.mondayItemId || null,
                 expenseItemName: `${exp.type} — ${req.technician.name}`,
               });
+
+              // Check if there is a file for this expense
+              // Convention: frontend sends files with fieldname matching expense index: 'receipt_0', 'receipt_1', etc.
+              const receiptFile = req.files?.find(f => f.fieldname === `receipt_${i}`);
+              if (receiptFile) {
+                console.log(`[clock-out] Uploading receipt for expense index ${i} to item ${expenseMondayId}...`);
+                await monday.addFileToColumn(expenseMondayId, monday.COL.EXPENSES.RECEIPT, receiptFile);
+              }
 
               const { syncExpenseToCost } = require("../services/monday/syncService");
               await syncExpenseToCost(exp.id);

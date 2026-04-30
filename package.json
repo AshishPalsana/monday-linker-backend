@@ -1,12 +1,12 @@
 {
   "name": "monday-linker-backend",
   "version": "1.0.0",
-  "description": "REST API for Monday Linker Field Services — time tracking, expenses",
+  "description": "REST API for Monday Linker Field Services \u2014 time tracking, expenses",
   "type": "commonjs",
   "main": "src/app.js",
   "scripts": {
-    "dev": "nodemon src/app.js",
-    "start": "node src/app.js",
+    "dev": "node api.js && nodemon src/app.js",
+    "start": "node api.js && node src/app.js",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
@@ -22,9 +22,11 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-validator": "^7.2.1",
+    "form-data": "^4.0.5",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "multer": "^2.1.1",
     "socket.io": "^4.8.3",
     "xero-node": "^15.0.0"
   },
