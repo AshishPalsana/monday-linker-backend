@@ -1,5 +1,6 @@
 
 const axios = require("axios");
+const FormData = require("form-data");
 const { getCSTOffset } = require("./cstTime");
 
 const MONDAY_API_URL = "https://api.monday.com/v2";
@@ -24,14 +25,14 @@ function toCSTDateParts(date) {
 
 // ── Board / Column constants ────────────────────────────
 const BOARD = {
-  WORK_ORDERS:   "18402613691",
-  TIME_ENTRIES:  "18406939306",
-  EXPENSES:      "18406939432",
-  CUSTOMERS:     "18400951947",
-  LOCATIONS:     "18400965227",
-  MASTER_COSTS:  "18407330739",
+  WORK_ORDERS: "18402613691",
+  TIME_ENTRIES: "18406939306",
+  EXPENSES: "18406939432",
+  CUSTOMERS: "18400951947",
+  LOCATIONS: "18400965227",
+  MASTER_COSTS: "18407330739",
   INVOICE_ITEMS: "18403393439",
-  TECHNICIANS:   "18401479312",
+  TECHNICIANS: "18401479312",
 };
 
 
@@ -110,11 +111,11 @@ const COL = {
     REVENUE_ACCOUNT: "color_mm1csz5m",
   },
   TECHNICIANS: {
-    STATUS:      "color_mm0w8tnj",
-    EMAIL:       "email_mm0w15ry",
+    STATUS: "color_mm0w8tnj",
+    EMAIL: "email_mm0w15ry",
     HOURLY_RATE: "numeric_mm0wgqn1",
-    POSITION:    "dropdown_mm0w3f6c",
-    PHONE:       "phone_mm0w2yzw",
+    POSITION: "dropdown_mm0w3f6c",
+    PHONE: "phone_mm0w2yzw",
     EMPLOYEE_ID: "text_mm0wb6v3",
   },
 };
@@ -807,13 +808,13 @@ async function getAllCustomers() {
   return items.map((item) => {
     const cv = (id) => item.column_values.find((c) => c.id === id)?.text || "";
     return {
-      id:             item.id,
-      name:           item.name,
-      accountNumber:  cv(COL.CUSTOMERS.ACCOUNT_NUMBER),
-      email:          cv(COL.CUSTOMERS.EMAIL),
-      phone:          cv(COL.CUSTOMERS.PHONE),
-      address:        cv(COL.CUSTOMERS.BILLING_ADDRESS),
-      xeroContactId:  cv(COL.CUSTOMERS.XERO_CONTACT_ID),
+      id: item.id,
+      name: item.name,
+      accountNumber: cv(COL.CUSTOMERS.ACCOUNT_NUMBER),
+      email: cv(COL.CUSTOMERS.EMAIL),
+      phone: cv(COL.CUSTOMERS.PHONE),
+      address: cv(COL.CUSTOMERS.BILLING_ADDRESS),
+      xeroContactId: cv(COL.CUSTOMERS.XERO_CONTACT_ID),
     };
   });
 }
@@ -934,7 +935,7 @@ function extractEmailFromColumn(col) {
     try {
       const parsed = JSON.parse(col.value);
       if (parsed?.email) return parsed.email.toLowerCase().trim();
-    } catch (_) {}
+    } catch (_) { }
   }
   return col.text?.toLowerCase().trim() || "";
 }
@@ -1000,13 +1001,13 @@ async function getTechnicianBoardItem(mondayItemId) {
   return {
     mondayItemId: item.id,
     name: item.name,
-    status:     col(COL.TECHNICIANS.STATUS)?.text || null,
-    position:   col(COL.TECHNICIANS.POSITION)?.text || null,
-    phone:      col(COL.TECHNICIANS.PHONE)?.text || null,
-    email:      extractEmailFromColumn(col(COL.TECHNICIANS.EMAIL)),
+    status: col(COL.TECHNICIANS.STATUS)?.text || null,
+    position: col(COL.TECHNICIANS.POSITION)?.text || null,
+    phone: col(COL.TECHNICIANS.PHONE)?.text || null,
+    email: extractEmailFromColumn(col(COL.TECHNICIANS.EMAIL)),
     hourlyRate: parseFloat(col(COL.TECHNICIANS.HOURLY_RATE)?.text || 0),
     employeeId: col(COL.TECHNICIANS.EMPLOYEE_ID)?.text || null,
-    notes:      col(COL.TECHNICIANS.NOTES)?.text || null,
+    notes: col(COL.TECHNICIANS.NOTES)?.text || null,
   };
 }
 
@@ -1018,12 +1019,12 @@ async function getTechnicianBoardItem(mondayItemId) {
 async function updateTechnicianBoardItem(mondayItemId, { status, position, phone, hourlyRate, employeeId, notes } = {}) {
   const cv = {};
 
-  if (status     !== undefined && status     !== null) cv[COL.TECHNICIANS.STATUS]      = { label: status };
-  if (position   !== undefined && position   !== null) cv[COL.TECHNICIANS.POSITION]    = { labels: [position] };
-  if (phone      !== undefined && phone      !== null) cv[COL.TECHNICIANS.PHONE]       = { phone, countryShortName: "US" };
+  if (status !== undefined && status !== null) cv[COL.TECHNICIANS.STATUS] = { label: status };
+  if (position !== undefined && position !== null) cv[COL.TECHNICIANS.POSITION] = { labels: [position] };
+  if (phone !== undefined && phone !== null) cv[COL.TECHNICIANS.PHONE] = { phone, countryShortName: "US" };
   if (hourlyRate !== undefined && hourlyRate !== null) cv[COL.TECHNICIANS.HOURLY_RATE] = String(parseFloat(hourlyRate) || 0);
   if (employeeId !== undefined && employeeId !== null) cv[COL.TECHNICIANS.EMPLOYEE_ID] = String(employeeId);
-  if (notes      !== undefined && notes      !== null) cv[COL.TECHNICIANS.NOTES]       = { text: String(notes) };
+  if (notes !== undefined && notes !== null) cv[COL.TECHNICIANS.NOTES] = { text: String(notes) };
 
   if (Object.keys(cv).length === 0) return; // nothing to update
 
@@ -1137,6 +1138,7 @@ module.exports = {
   getWorkOrderAssignedTechnicians,
   getActiveWorkOrders,
   updateWorkOrderTotalCost,
+  addFileToColumn,
   graphql,
   BOARD,
   COL,
@@ -1677,4 +1679,37 @@ async function updateCustomerBillingDetails(pulseId, billingAddress, terms) {
       ) { id }
     }
   `);
+}
+
+async function addFileToColumn(itemId, columnId, file) {
+  const token = process.env.MONDAY_API_TOKEN;
+  if (!token) throw new Error("MONDAY_API_TOKEN is not set");
+
+  const query = `mutation add_file($file: File!) {
+    add_file_to_column (item_id: ${itemId}, column_id: "${columnId}", file: $file) {
+      id
+    }
+  }`;
+
+  const form = new FormData();
+  form.append("query", query);
+  form.append("map", JSON.stringify({ image: "variables.file" }));
+  form.append("image", file.buffer, {
+    filename: file.originalname,
+    contentType: file.mimetype,
+  });
+
+  const response = await axios.post("https://api.monday.com/v2/file", form, {
+    headers: {
+      ...form.getHeaders(),
+      Authorization: token,
+    },
+  });
+
+  if (response.data.errors) {
+    const msg = response.data.errors.map((e) => e.message).join("; ");
+    throw new Error(`Monday.com File API error: ${msg}`);
+  }
+
+  return response.data.data.add_file_to_column.id;
 }
