@@ -255,10 +255,9 @@ async function createXeroProject({ workOrderId, workOrderName, contactId, deadli
 
   const { xero, tenantId } = await getAuthenticatedClient();
 
-  // Build a clean project name: "WO-1042 — Ice Machine Repair"
-  const projectName = workOrderName && workOrderName !== workOrderId
-    ? `${workOrderId} — ${workOrderName}`
-    : workOrderId;
+  // Use the provided work order name directly (e.g. "Ice Machine Repair")
+  // Fall back to the ID only if no name is available.
+  const projectName = workOrderName || workOrderId;
 
   const days = Number(deadlineDays) || 90;
   const deadlineUtc = new Date(
