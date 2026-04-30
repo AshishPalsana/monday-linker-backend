@@ -70,7 +70,7 @@ async function resolveXeroContact(customerId) {
     console.error(`[webhook] Xero contact creation failed for customer ${custId}:`, xeroErr.message);
 
     // Mark Monday status as Error
-    await updateCustomerXeroStatus(custId, "Error").catch(() => {});
+    await updateCustomerXeroStatus(custId, "Error").catch(() => { });
 
     // Persist failure to DB
     await prisma.customer.upsert({
@@ -118,7 +118,7 @@ async function resolveXeroContact(customerId) {
 
   // 5. Update Monday Account Number if it changed (e.g. pulled from existing Xero contact)
   if (finalAccountNumber && finalAccountNumber !== cust.accountNumber) {
-    await updateCustomerAccountNumber(custId, finalAccountNumber).catch(() => {});
+    await updateCustomerAccountNumber(custId, finalAccountNumber).catch(() => { });
   }
 
   // 5. Write back to Monday board (non-blocking — board display is secondary)
@@ -188,56 +188,12 @@ router.post("/monday/item-created", async (req, res, next) => {
             console.error("[webhook] Failed to upsert work order record:", dbErr.message);
           }
 
-          // Fetch WO details to get linked customer & location
+          // Fetch WO details to get linked location
           let wo = null;
           try {
             wo = await getWorkOrderDetails(pulseId);
           } catch (err) {
             console.error("[webhook] Failed to fetch WO details:", err.message);
-          }
-
-          const workOrderName = wo?.name || newWorkOrderId;
-
-          // ── Xero Project creation ─────────────────────────────────────────
-          try {
-            if (!wo?.customerId) {
-              throw new Error(
-                "No Customer linked to this Work Order. " +
-                "Link a customer and use 'Retry Sync' on the Work Order to create the Xero Project."
-              );
-            }
-
-            const xeroContactId = await resolveXeroContact(wo.customerId);
-
-            if (!xeroContactId) {
-              throw new Error(
-                `Customer ${wo.customerId} could not be synced to Xero. ` +
-                "Fix the customer sync first, then retry this Work Order."
-              );
-            }
-
-            console.log(`[webhook] Creating Xero Project for ${newWorkOrderId}…`);
-            const xeroProjectId = await xeroService.createXeroProject({
-              workOrderId: newWorkOrderId,
-              workOrderName,
-              contactId: xeroContactId,
-            });
-
-            await prisma.workOrderSync.upsert({
-              where: { mondayItemId: String(pulseId) },
-              update: { xeroProjectId, workOrderId: newWorkOrderId, syncError: null },
-              create: { mondayItemId: String(pulseId), workOrderId: newWorkOrderId, xeroProjectId },
-            });
-
-            console.log(`[webhook] ✓ Xero Project created — projectId: ${xeroProjectId}`);
-          } catch (err) {
-            console.error("[webhook] ✗ Xero Project creation failed:", err.message);
-
-            await prisma.workOrderSync.upsert({
-              where: { mondayItemId: String(pulseId) },
-              update: { syncError: err.message, workOrderId: newWorkOrderId },
-              create: { mondayItemId: String(pulseId), workOrderId: newWorkOrderId, syncError: err.message },
-            }).catch((dbErr) => console.error("[webhook] Failed to persist Xero sync error:", dbErr.message));
           }
 
           // ── CompanyCam report ─────────────────────────────────────────────
@@ -286,7 +242,7 @@ router.post("/monday/item-created", async (req, res, next) => {
 
         const techColId = String(COL.WORK_ORDERS.TECHNICIAN);
         const custColId = String(COL.WORK_ORDERS.CUSTOMER);
-        const locColId  = String(COL.WORK_ORDERS.LOCATION);
+        const locColId = String(COL.WORK_ORDERS.LOCATION);
 
         // ── Technician assignment ───────────────────────────────────────────
         if (event.columnId === techColId) {
@@ -318,8 +274,14 @@ router.post("/monday/item-created", async (req, res, next) => {
           res.status(200).send("OK");
 
           setImmediate(async () => {
+            const lockId = `WO_SYNC_${pulseId}`;
+            if (!xeroService.tryAcquireSyncLock(lockId)) {
+              console.log(`[webhook] Sync lock held for WO ${pulseId} — skipping duplicate project creation (customer link)`);
+              return;
+            }
+
             try {
-              // Skip if a Xero project already exists
+              // Skip if a Xero project already exists (re-check after lock)
               const existingSync = await prisma.workOrderSync.findUnique({
                 where: { mondayItemId: String(pulseId) },
               });
@@ -372,6 +334,8 @@ router.post("/monday/item-created", async (req, res, next) => {
                   syncError: err.message,
                 },
               }).catch((dbErr) => console.error("[webhook] Failed to persist WO sync error:", dbErr.message));
+            } finally {
+              xeroService.releaseSyncLock(lockId);
             }
           });
 
@@ -497,7 +461,7 @@ router.post("/monday/item-created", async (req, res, next) => {
 
             // Write back to Monday if account number changed (e.g. pulled from Xero)
             if (finalAccountNumber !== newAccountNumber) {
-              await updateCustomerAccountNumber(String(pulseId), finalAccountNumber).catch(() => {});
+              await updateCustomerAccountNumber(String(pulseId), finalAccountNumber).catch(() => { });
             }
 
             // Write back to Monday board
@@ -523,9 +487,9 @@ router.post("/monday/item-created", async (req, res, next) => {
                 syncErrorMessage: err.message,
                 lastSyncAt: new Date(),
               },
-            }).catch(() => {});
+            }).catch(() => { });
 
-            await updateCustomerXeroStatus(String(pulseId), "Error").catch(() => {});
+            await updateCustomerXeroStatus(String(pulseId), "Error").catch(() => { });
           }
         });
 
@@ -637,7 +601,7 @@ router.post("/monday/item-created", async (req, res, next) => {
         COL.MASTER_COSTS.WORK_ORDERS_REL,
       ]);
 
-      const isCreate     = event.type === "create_pulse";
+      const isCreate = event.type === "create_pulse";
       const isNameChange = event.type === "change_name";
       const isCostRelevantChange = !isCreate && !isNameChange && COST_RELEVANT_COLS.has(event.columnId);
 
@@ -659,20 +623,20 @@ router.post("/monday/item-created", async (req, res, next) => {
             return;
           }
 
-          const MC  = COL.MASTER_COSTS;
+          const MC = COL.MASTER_COSTS;
           const col = (id) => item.column_values.find((c) => c.id === id);
 
           // Resolve linked Work Order ID
-          const relCol    = col(MC.WORK_ORDERS_REL);
+          const relCol = col(MC.WORK_ORDERS_REL);
           let workOrderId = null;
           if (Array.isArray(relCol?.linked_item_ids) && relCol.linked_item_ids.length > 0) {
             workOrderId = relCol.linked_item_ids[0];
           } else if (relCol?.value) {
             try {
-              const parsed   = JSON.parse(relCol.value);
+              const parsed = JSON.parse(relCol.value);
               const linkedIds = parsed.linkedPulseIds || parsed.item_ids || [];
-              workOrderId    = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
-            } catch (_) {}
+              workOrderId = linkedIds[0]?.linkedPulseId || linkedIds[0]?.id || linkedIds[0];
+            } catch (_) { }
           }
 
           // 1. Aggregate total cost on the Work Order
@@ -692,13 +656,13 @@ router.post("/monday/item-created", async (req, res, next) => {
               return;
             }
 
-            let existingXeroSyncId   = col(MC.XERO_SYNC_ID)?.text?.trim() || null;
-            const type               = col(MC.TYPE)?.text || null;
-            const quantity           = parseFloat(col(MC.QUANTITY)?.text || 0);
-            const rate               = parseFloat(col(MC.RATE)?.text || 0);
-            const totalCost          = parseFloat(col(MC.TOTAL_COST)?.text || 0);
-            const description        = col(MC.DESCRIPTION)?.text || null;
-            const date               = col(MC.DATE)?.text || null;
+            let existingXeroSyncId = col(MC.XERO_SYNC_ID)?.text?.trim() || null;
+            const type = col(MC.TYPE)?.text || null;
+            const quantity = parseFloat(col(MC.QUANTITY)?.text || 0);
+            const rate = parseFloat(col(MC.RATE)?.text || 0);
+            const totalCost = parseFloat(col(MC.TOTAL_COST)?.text || 0);
+            const description = col(MC.DESCRIPTION)?.text || null;
+            const date = col(MC.DATE)?.text || null;
 
             // Skip if the item has no type or zero cost — it's not fully set up yet
             if (!type || (totalCost === 0 && rate === 0)) {
